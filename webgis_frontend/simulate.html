@@ -577,9 +577,47 @@
             <input type="checkbox" id="layer-temperature" class="layer-checkbox">
             <label for="layer-temperature">温度数据</label>
           </div>
+          <!-- 温度查询子面板：勾选"温度数据"后展开，由 meteo-query.js 驱动 -->
+          <div class="meteo-subpanel" id="meteo-temperature-subpanel" hidden>
+            <div class="meteo-row">
+              <label class="meteo-radio"><input type="radio" name="meteo-temp-var" value="temperature_2m" checked> 日均温</label>
+              <label class="meteo-radio"><input type="radio" name="meteo-temp-var" value="temperature_2m_max"> 日最高温</label>
+            </div>
+            <div class="meteo-row">
+              <label>起：<input type="date" id="meteo-temp-start" value="2024-06-01"></label>
+              <label>止：<input type="date" id="meteo-temp-end" value="2024-06-07"></label>
+            </div>
+            <div class="meteo-row">
+              <button type="button" class="meteo-btn" id="meteo-temp-query">查询</button>
+              <span class="meteo-hint">均值单位：℃</span>
+            </div>
+            <table class="meteo-result-table" id="meteo-temp-table">
+              <thead><tr><th>日期</th><th>均值</th><th>操作</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
           <div class="layer-item">
             <input type="checkbox" id="layer-precipitation" class="layer-checkbox">
             <label for="layer-precipitation">降水数据</label>
+          </div>
+          <!-- 降水查询子面板：勾选"降水数据"后展开 -->
+          <div class="meteo-subpanel" id="meteo-precip-subpanel" hidden>
+            <div class="meteo-row">
+              <label class="meteo-radio"><input type="radio" name="meteo-precip-var" value="total_precipitation_sum" checked> 日总降水</label>
+              <label class="meteo-radio"><input type="radio" name="meteo-precip-var" value="total_precipitation_max"> 日最大降水</label>
+            </div>
+            <div class="meteo-row">
+              <label>起：<input type="date" id="meteo-precip-start" value="2024-06-01"></label>
+              <label>止：<input type="date" id="meteo-precip-end" value="2024-06-07"></label>
+            </div>
+            <div class="meteo-row">
+              <button type="button" class="meteo-btn" id="meteo-precip-query">查询</button>
+              <span class="meteo-hint">均值单位：mm</span>
+            </div>
+            <table class="meteo-result-table" id="meteo-precip-table">
+              <thead><tr><th>日期</th><th>均值</th><th>操作</th></tr></thead>
+              <tbody></tbody>
+            </table>
           </div>
           <!-- 积雪数据（气象水文：固态降水） -->
           <div class="category-item" data-type="snow-data">
@@ -769,6 +807,8 @@
   <script src="js/geotiff.js"></script>
   <script src="js/main.js"></script>
   <script src="js/simulate.js"></script>
+  <script src="js/geotiff-render.js"></script>
+  <script src="js/meteo-query.js"></script>
   
   <script>
     // 加载流域列表
