@@ -1,0 +1,6 @@
+{
+  "name": "webgis_frontend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "青藏高原冰冻圈灾害数字孪生系统前端（纯 HTML/CSS/JS，由 Flask 直接提供静态资源；地图用 CDN 的 OpenLayers/ECharts，GeoTIFF 用本地 js/geotiff.js）"
+}

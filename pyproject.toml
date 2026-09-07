@@ -1,0 +1,8 @@
+[tool.pytest.ini_options]
+# 项目根加入 sys.path 的首位，配合根 conftest.py 注入 webgis_backend，
+# 使测试可直接 `import modules.xxx` 而无需在每个文件手写 sys.path。
+pythonpath = ["."]
+testpaths = ["tests"]
+# smoke_test.py 是独立脚本（顶层 sys.exit），需用 `python tests/smoke_test.py` 运行，
+# 不属于 pytest 收集范围，避免其 sys.exit 在导入阶段中断 pytest。
+addopts = ["--ignore=tests/smoke_test.py"]

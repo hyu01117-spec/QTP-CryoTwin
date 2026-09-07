@@ -1,0 +1,22 @@
+# ===== 全项目依赖 = 后端运行时依赖 + Training 训练/推理脚本依赖 =====
+# 后端单独部署时用 webgis_backend/requirements.txt（不含 scikit-learn / psutil）
+Flask>=2.0.0
+flask-cors>=3.0.10
+requests>=2.25.0
+python-dotenv>=1.0.0
+pandas>=2.0.0
+numpy>=1.23.0
+torch>=2.0.0
+rasterio>=1.3.0
+geopandas>=0.14.0
+shapely>=2.0.0
+scipy>=1.10.0
+matplotlib>=3.7.0
+# openpyxl 无直接 import，但 alert.py 的 pd.read_excel() 读 .xlsx 需要它作为 pandas 引擎，不可删
+openpyxl>=3.1.0
+# python-dateutil 无直接 import，但它是 pandas 的硬依赖，不可删
+python-dateutil>=2.8.2
+tqdm>=4.65.0
+# ===== 训练脚本（Training/）所需 =====
+scikit-learn>=1.3.0
+psutil>=5.9.0

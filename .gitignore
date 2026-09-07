@@ -1,0 +1,71 @@
+# 旧仓库历史备份（cryo-floods 时代的 .git，2026-09-07 重建仓库时保留，确认无用后可删除）
+.git-old-history-backup/
+
+# ============ Python ============
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+build/
+dist/
+*.so
+
+# 内嵌 Python 运行时（自包含，随硬盘走；体积约 1.5GB，不入库）
+# 需要时用 scripts\setup_runtime.ps1 重建
+.runtime/
+# 旧虚拟环境备份（母解释器钉死在 C 盘用户目录，换机即失效）
+.venv.old/
+
+# ============ IDE ============
+.idea/
+.vscode/
+*.iml
+.trae/
+
+# ============ Node ============
+node_modules/
+
+# ============ 环境变量与密钥（绝不提交） ============
+.env
+.env.*
+!.env.example
+
+# ============ 数据目录（原始数据体量巨大，不入库） ============
+data/
+# WebGIS 子系统数据区 data/webgis/ 下的两类交付物须入库：
+#   content/ 业务内容数据（决策知识库 / 专家名录 JSON）
+#   uploads/ 用户上传模板数据（社会经济 Excel）
+# 规则顺序敏感：先解除 data/webgis 目录的忽略，才能在内部再排除 outputs。
+!data/webgis/
+!data/webgis/content/
+!data/webgis/content/*.json
+!data/webgis/uploads/
+!data/webgis/uploads/*.xlsx
+# 运行产物（径流 / 淹没 / 风险栅格，可再生，体积 2.7GB）
+data/webgis/outputs/
+
+# ============ 其他运行产物（可再生） ============
+*.tif
+!Training/output/*.png
+
+# ============ 日志 / 缓存 / 测试 ============
+*.log
+.pytest_cache/
+*.pyc
+.DS_Store
+Thumbs.db
+.chrome-test/
+.chrome-test2/
+
+# ============ 本地备份 ============
+_backup_*/
+# 待删除暂存目录（人工确认后整包删除）
+_pending_delete_*/
+
+# ============ 论文（不入库） ============
+大论文/
+
+# ============ 工作区本地（助手临时脚本与记忆，不入库） ============
+.workbuddy/

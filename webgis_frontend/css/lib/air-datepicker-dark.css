@@ -1,0 +1,57 @@
+/* ============================================================
+   air-datepicker 深色主题（在 air-datepicker.css 之后引入）
+   通过覆盖 --adp-* CSS 变量实现，与项目深色 UI 统一
+   ============================================================ */
+
+.air-datepicker {
+  --adp-font-family: inherit;
+  --adp-background-color: #0e1828;              /* 日历弹层背景 */
+  --adp-background-color-hover: #1b2840;
+  --adp-background-color-active: #1b2840;
+  --adp-background-color-in-range: rgba(59, 130, 246, 0.15);
+  --adp-background-color-in-range-focused: rgba(59, 130, 246, 0.25);
+  --adp-background-color-selected-other-month: rgba(59, 130, 246, 0.35);
+  --adp-background-color-selected-other-month-focused: rgba(59, 130, 246, 0.45);
+  --adp-color: #e6edf7;                          /* 主文字 */
+  --adp-color-secondary: #94a3b8;                /* 次要文字 */
+  --adp-accent-color: #3b82f6;                   /* 选中/强调 */
+  --adp-color-current-date: #7dd3fc;             /* 今天 */
+  --adp-color-other-month: #5a6a85;              /* 邻月日期 */
+  --adp-color-disabled: #3d4b63;                 /* 禁用日期 */
+  --adp-color-disabled-in-range: rgba(59, 130, 246, 0.3);
+  --adp-color-other-month-hover: #cbd5e1;
+  --adp-border-color: #3a4a66;
+  --adp-border-color-inner: #3a4a66;
+  --adp-border-color-inline: #3a4a66;
+  --adp-nav-arrow-color: #7dd3fc;
+  --adp-nav-color-secondary: #94a3b8;
+  --adp-day-name-color: #7dd3fc;
+  --adp-day-name-color-hover: #7dd3fc;
+  --adp-cell-background-color-hover: rgba(59, 130, 246, 0.22);
+  --adp-cell-background-color-selected: #3b82f6;
+  --adp-cell-background-color-selected-hover: #2563eb;
+  --adp-cell-background-color-in-range: rgba(59, 130, 246, 0.15);
+  --adp-cell-background-color-in-range-hover: rgba(59, 130, 246, 0.25);
+  --adp-cell-border-color-in-range: rgba(59, 130, 246, 0.4);
+  --adp-btn-color: #7dd3fc;
+  --adp-btn-color-hover: #7dd3fc;
+  --adp-btn-background-color-hover: rgba(59, 130, 246, 0.2);
+  --adp-btn-background-color-active: rgba(59, 130, 246, 0.3);
+  --adp-time-track-color: #3a4a66;
+  --adp-time-track-color-hover: #7dd3fc;
+  --adp-time-day-period-color: #7dd3fc;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  z-index: 9999;
+}
+
+/* 月份/年份下拉（原生 select）深色 */
+.air-datepicker .air-datepicker-nav--title select,
+.air-datepicker-nav select {
+  background: #0e1828 !important;
+  color: #e6edf7 !important;
+  border: 1px solid #3a4a66 !important;
+}
+.air-datepicker-nav select option {
+  background: #0e1828 !important;
+  color: #e6edf7 !important;
+}

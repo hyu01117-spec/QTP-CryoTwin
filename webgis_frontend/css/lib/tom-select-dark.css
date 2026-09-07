@@ -1,0 +1,103 @@
+/* ============================================================
+   Tom Select 深色主题适配（在 tom-select.min.css 之后引入）
+   覆盖全部元素：触发器/下拉面板/选项/hover/选中/箭头/占位
+   ============================================================ */
+
+/* 触发器（输入框外观） */
+.ts-wrapper.single .ts-control {
+  background: var(--card-bg, #1b2840) !important;
+  border: 1px solid var(--border-color, #3a4a66) !important;
+  border-radius: 6px !important;
+  color: var(--text-primary, #e6edf7) !important;
+  min-height: 38px !important;
+  box-sizing: border-box !important;
+  cursor: pointer;
+}
+.ts-wrapper .ts-control {
+  background: var(--card-bg, #1b2840) !important;
+  color: var(--text-primary, #e6edf7) !important;
+}
+.ts-wrapper.single .ts-control .item {
+  color: var(--text-primary, #e6edf7) !important;
+}
+.ts-wrapper .ts-control input {
+  color: var(--text-primary, #e6edf7) !important;
+}
+.ts-wrapper .ts-control input::placeholder {
+  color: #7c8aa5 !important;
+}
+
+/* 聚焦态 */
+.ts-wrapper.focus .ts-control {
+  border-color: var(--primary, #3b82f6) !important;
+  box-shadow: 0 0 0 1px var(--primary, #3b82f6) !important;
+}
+
+/* 下拉箭头（单选） */
+.ts-wrapper.single::after {
+  border-color: var(--text-secondary, #94a3b8) transparent transparent !important;
+  border-width: 5px !important;
+  margin-top: -2px !important;
+}
+.ts-wrapper.single.dropdown-active::after {
+  border-color: transparent transparent var(--primary, #3b82f6) !important;
+  margin-top: -7px !important;
+}
+
+/* 下拉面板 */
+.ts-dropdown {
+  background: rgba(16, 26, 44, 0.98) !important;
+  border: 1px solid var(--border-color, #3a4a66) !important;
+  border-radius: 0 0 8px 8px !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4) !important;
+  z-index: 1000 !important;
+  color: var(--text-primary, #e6edf7) !important;
+}
+.ts-dropdown .ts-dropdown-content {
+  background: transparent !important;
+}
+.ts-dropdown .ts-dropdown-content .option {
+  color: var(--text-primary, #e6edf7) !important;
+  font-size: 13px !important;
+  padding: 8px 12px !important;
+}
+.ts-dropdown .ts-dropdown-content .option:hover,
+.ts-dropdown .ts-dropdown-content .option.active {
+  background: rgba(59, 130, 246, 0.22) !important;
+  color: #fff !important;
+}
+.ts-dropdown .ts-dropdown-content .option.selected {
+  color: #7dd3fc !important;
+  background: rgba(59, 130, 246, 0.1) !important;
+}
+.ts-dropdown .ts-dropdown-content .no-results {
+  color: var(--text-secondary, #94a3b8) !important;
+}
+
+/* 占位文本 */
+.ts-wrapper .ts-control > .placeholder,
+.ts-wrapper .ts-control > .item.placeholder {
+  color: #7c8aa5 !important;
+  opacity: 1 !important;
+}
+
+/* 禁用态 */
+.ts-wrapper.disabled .ts-control {
+  opacity: 0.6 !important;
+}
+
+/* 侧边栏内宽度/间距适配 */
+.simulate-category-sidebar-content .ts-wrapper,
+.alert-category-sidebar-content > .ts-wrapper,
+.query-widget .ts-wrapper,
+.alert-widget .ts-wrapper {
+  width: 100% !important;
+  margin-bottom: 12px !important;
+}
+.alert-category-sidebar-content > .ts-wrapper {
+  margin-bottom: 8px !important;
+}
+.ts-wrapper,
+.ts-wrapper .ts-control {
+  max-width: 100% !important;
+}

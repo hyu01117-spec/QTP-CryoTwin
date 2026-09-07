@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>青藏高原冰冻圈灾害数字孪生系统</title>
+  <!-- 使用多个CDN源确保OpenLayers加载成功 -->
+  <link rel="stylesheet" href="css/lib/ol.css" />
+  <!-- 移除高德地图API引用 -->
+  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="stylesheet" href="css/components.css" />
+  <!-- 使用多个CDN源确保Font Awesome加载成功 -->
+  <link href="css/lib/font-awesome.min.css" rel="stylesheet">
+</head>
+<body>
+  <!-- 加载遮罩层 -->
+  <div class="loading-overlay" id="loading-overlay">
+    <div class="loading-spinner"></div>
+    <div class="loading-text" id="loading-text">系统正在加载中，请稍候...</div>
+  </div>
+
+  <!-- 顶部导航 -->
+  <div class="topbar">
+    <div class="topbar-row1">
+      <div class="logo">青藏高原冰冻圈灾害数字孪生系统</div>
+      <div class="user">
+        <span><i style="font-size:11px;"></i></span>
+      </div>
+    </div>
+    <div class="topbar-row2">
+      <div class="nav-links">
+        <a href="index.html">首页</a>
+        <div class="dropdown-container">
+          <a href="#" class="dropdown-toggle" data-page="query">灾害数据库</a>
+          <div class="dropdown-menu" id="disaster-dropdown">
+            <a href="query.html?cat=flood" class="dropdown-item" data-category="flood">洪水灾害数据库</a>
+            <a href="query.html?cat=snow" class="dropdown-item" data-category="snow">积雪灾害数据库</a>
+            <a href="query.html?cat=ice" class="dropdown-item" data-category="ice">冰川灾害数据库</a>
+            <a href="query.html?cat=permafrost" class="dropdown-item" data-category="permafrost">冻土灾害数据库</a>
+          </div>
+        </div>
+        <div class="dropdown-container">
+          <a href="#" class="dropdown-toggle" data-page="simulate">灾害过程模拟</a>
+          <div class="dropdown-menu" id="simulate-dropdown">
+            <a href="simulate.html?cat=flood-simulate" class="dropdown-item" data-category="flood-simulate">洪水灾害过程模拟</a>
+            <a href="simulate.html?cat=snow-simulate" class="dropdown-item" data-category="snow-simulate">积雪灾害过程模拟</a>
+            <a href="simulate.html?cat=ice-simulate" class="dropdown-item" data-category="ice-simulate">冰川灾害过程模拟</a>
+            <a href="simulate.html?cat=permafrost-simulate" class="dropdown-item" data-category="permafrost-simulate">冻土灾害过程模拟</a>
+          </div>
+        </div>
+        <div class="dropdown-container">
+          <a href="#" class="dropdown-toggle" data-page="alert">风险评估</a>
+          <div class="dropdown-menu" id="alert-dropdown">
+            <a href="alert.html?cat=flood" class="dropdown-item" data-category="flood">洪水灾害风险评估</a>
+            <a href="alert.html?cat=snow" class="dropdown-item" data-category="snow">积雪灾害风险评估</a>
+            <a href="alert.html?cat=ice" class="dropdown-item" data-category="ice">冰川灾害风险评估</a>
+            <a href="alert.html?cat=permafrost" class="dropdown-item" data-category="permafrost">冻土灾害风险评估</a>
+          </div>
+        </div>
+        <div class="dropdown-container">
+          <a href="#" class="dropdown-toggle" data-page="decision">决策支持</a>
+          <div class="dropdown-menu" id="decision-dropdown">
+            <a href="decision.html?cat=llm" class="dropdown-item" data-category="llm">决策支持智能体</a>
+            <a href="decision.html?cat=expert" class="dropdown-item" data-category="expert">专家咨询</a>
+            <a href="decision.html?cat=prevention-example" class="dropdown-item" data-category="prevention-example">防灾实例</a>
+            <a href="decision.html?cat=non-engineering" class="dropdown-item" data-category="non-engineering">非工程措施</a>
+            <a href="decision.html?cat=engineering" class="dropdown-item" data-category="engineering">工程措施</a>
+          </div>
+        </div>
+        <div class="dropdown-container">
+          <a href="#" class="dropdown-toggle" data-page="admin">系统管理</a>
+          <div class="dropdown-menu" id="admin-dropdown">
+            <a href="admin.html?cat=user" class="dropdown-item" data-category="user">用户管理</a>
+            <a href="admin.html?cat=role" class="dropdown-item" data-category="role">角色管理</a>
+            <a href="admin.html?cat=permission" class="dropdown-item" data-category="permission">权限管理</a>
+            <a href="admin.html?cat=log" class="dropdown-item" data-category="log">系统日志</a>
+            <a href="admin.html?cat=data" class="dropdown-item" data-category="data">数据管理</a>
+            <a href="admin.html?cat=agent" class="dropdown-item" data-category="agent">智能体设置</a>
+            <a href="admin.html?cat=setting" class="dropdown-item" data-category="setting">系统设置</a>
+            <a href="admin.html?cat=status" class="dropdown-item" data-category="status">系统状态</a>
+          </div>
+        </div>
+      </div>
+      <div class="searchbar">
+        <input type="search" id="place-search" placeholder="搜索地点或流域…" />
+        <button id="search-btn" title="搜索">🔍</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 地图 -->
+  <div id="map" class="map-container">
+  </div>
+
+  <!-- 右侧决策支持侧边栏 -->
+  <div class="decision-sidebar" id="decision-sidebar">
+    <div class="decision-sidebar-header">
+      <h2 class="decision-sidebar-title" id="decision-sidebar-title">决策支持</h2>
+      <button class="decision-sidebar-close" id="decision-sidebar-close">&times;</button>
+    </div>
+    
+    <!-- 非工程措施 -->
+    <div class="decision-category-sidebar" id="non-engineering-category-sidebar" style="display: none;">
+      <div class="decision-content-sidebar">
+        <div class="decision-content-note">
+          <i class="fa fa-info-circle"></i> 监测预警 / 应急预案 / 群测群防 / 宣传教育 / 风险管理 / 保险救助等非工程手段，参照各地山洪与地质灾害防御实践整理。
+        </div>
+        <div class="expert-search">
+          <i class="fa fa-search"></i>
+          <input type="text" id="ne-search-input" placeholder="搜索措施 / 类型 / 关键词" autocomplete="off">
+        </div>
+        <div class="decision-content-list" id="ne-list"></div>
+      </div>
+    </div>
+
+    <!-- 工程措施 -->
+    <div class="decision-category-sidebar" id="engineering-category-sidebar" style="display: none;">
+      <div class="decision-content-sidebar">
+        <div class="decision-content-note">
+          <i class="fa fa-info-circle"></i> 防洪 / 泥石流防治 / 滑坡与堰塞湖 / 冰湖防治 / 冻土工程 / 雪害防治六类工程手段，含真实工程原理与实例（如青藏铁路冻土工程）。
+        </div>
+        <div class="expert-search">
+          <i class="fa fa-search"></i>
+          <input type="text" id="eng-search-input" placeholder="搜索工程 / 类型 / 关键词" autocomplete="off">
+        </div>
+        <div class="decision-content-list" id="eng-list"></div>
+      </div>
+    </div>
+
+    <!-- 专家咨询 -->
+    <div class="decision-category-sidebar" id="expert-category-sidebar" style="display: none;">
+      <div class="expert-sidebar-content">
+        <!-- 免责声明 -->
+        <div class="expert-disclaimer">
+          <i class="fa fa-info-circle"></i>
+          <span>冰冻圈灾害领域院士<strong>公开学术资料</strong>名录。联系方式为专家所在单位的<strong>公开渠道</strong>，不展示个人联系方式，请通过单位联系。仅供科研参考。</span>
+        </div>
+        <!-- 搜索 -->
+        <div class="expert-search">
+          <i class="fa fa-search"></i>
+          <input type="text" id="expert-search-input" placeholder="搜索姓名 / 领域 / 单位 / 标签" autocomplete="off">
+        </div>
+        <!-- 名录列表 -->
+        <div class="expert-roster" id="expert-roster">
+          <div class="expert-roster-loading">正在加载专家名录…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 决策支持智能体 -->
+    <div class="decision-category-sidebar llm-sidebar" id="llm-category-sidebar" style="display: none;">
+      <!-- 智能体头部（科技感信息栏） -->
+      <div class="llm-agent-header">
+        <div class="llm-agent-avatar">
+          <i class="fa fa-microchip"></i>
+        </div>
+        <div class="llm-agent-meta">
+          <div class="llm-agent-name">冰冻圈灾害决策智能体</div>
+          <div class="llm-agent-status">
+            <span class="llm-status-dot"></span>
+            <span id="llm-status-text">在线 · DeepSeek-V4</span>
+          </div>
+        </div>
+      </div>
+      <div class="llm-chat-wrap">
+        <div id="llm-chat-history" class="llm-chat-history">
+          <!-- 聊天历史记录 -->
+        </div>
+        <div class="llm-chat-input">
+          <input type="text" id="llm-input" placeholder="输入您的问题..." autocomplete="off">
+          <button id="llm-send-btn" class="btn">
+            <i class="fa fa-paper-plane"></i> 发送
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 防灾实例 -->
+    <div class="decision-category-sidebar" id="prevention-example-category-sidebar" style="display: none;">
+      <div class="decision-content-sidebar">
+        <div class="decision-content-note">
+          <i class="fa fa-info-circle"></i> 青藏高原及同类冰冻圈灾害真实案例（成因机制 / 过程影响 / 处置经验 / 启示），资料来源为政府通报、权威媒体与学术文献。
+        </div>
+        <div class="expert-search">
+          <i class="fa fa-search"></i>
+          <input type="text" id="case-search-input" placeholder="搜索案例 / 类型 / 地点 / 关键词" autocomplete="off">
+        </div>
+        <div class="decision-content-list" id="case-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 侧边栏遮罩（点击关闭） -->
+  <div class="decision-sidebar-mask" id="decision-sidebar-mask"></div>
+
+  <!-- 右侧浮动控制面板 -->
+  <div class="sidepanel">
+    <h3>查看选项</h3>
+    <div class="mode-switch">
+      <button class="active" id="btn-map">普通地图</button>
+      <button id="btn-mix">卫星地图</button>
+    </div>
+    
+    <!-- 图层控制分类 -->
+    <div class="category-container">
+      <!-- 基础地理 -->
+      <div class="category">
+        <div class="category-header">
+          <span>
+            <i class="fa fa-map-o"></i>
+            基础地理
+          </span>
+          <i class="fa fa-chevron-down toggle-icon"></i>
+        </div>
+        <div class="category-content">
+          <div class="layer-item">
+            <input type="checkbox" id="layer-basin" class="layer-checkbox">
+            <label for="layer-basin">一级流域边界</label>
+          </div>
+          <div class="layer-item">
+            <input type="checkbox" id="layer-basin-5" class="layer-checkbox">
+            <label for="layer-basin-5">二级流域边界</label>
+          </div>
+          <div class="layer-item">
+            <input type="checkbox" id="layer-river" class="layer-checkbox">
+            <label for="layer-river">河网水系</label>
+          </div>
+          <div class="layer-item">
+            <input type="checkbox" id="layer-lake" class="layer-checkbox">
+            <label for="layer-lake">湖泊分布</label>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 行政区划 -->
+      <div class="category">
+        <div class="category-header">
+          <span>
+            <i class="fa fa-flag"></i>
+            行政区划
+          </span>
+          <i class="fa fa-chevron-down toggle-icon"></i>
+        </div>
+        <div class="category-content">
+          <!-- 行政中心 -->
+          <div class="layer-item">
+            <input type="checkbox" id="layer-capital-settlement" class="layer-checkbox">
+            <label for="layer-capital-settlement">省级行政中心</label>
+          </div>
+          <div class="layer-item">
+            <input type="checkbox" id="layer-city-settlement" class="layer-checkbox">
+            <label for="layer-city-settlement">地市级行政中心</label>
+          </div>
+          <div class="layer-item">
+            <input type="checkbox" id="layer-settlement" class="layer-checkbox">
+            <label for="layer-settlement">县级行政中心</label>
+          </div>
+          
+          <!-- 行政边界 -->
+          <div class="layer-item">
+            <input type="checkbox" id="layer-boundary-country" class="layer-checkbox">
+            <label for="layer-boundary-country">国界</label>
+          </div>
+          <div class="layer-item">
+            <input type="checkbox" id="layer-boundary-province" class="layer-checkbox">
+            <label for="layer-boundary-province">省界</label>
+          </div>
+          <div class="layer-item">
+            <input type="checkbox" id="layer-boundary-city" class="layer-checkbox">
+            <label for="layer-boundary-city">地级行政界线</label>
+          </div>
+          <div class="layer-item">
+            <input type="checkbox" id="layer-boundary-county" class="layer-checkbox">
+            <label for="layer-boundary-county">县级行政界线</label>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 气象水文 -->
+      <div class="category">
+        <div class="category-header">
+          <span>
+            <i class="fa fa-tint"></i>
+            气象水文
+          </span>
+          <i class="fa fa-chevron-down toggle-icon"></i>
+        </div>
+        <div class="category-content">
+          <div class="layer-item">
+            <input type="checkbox" id="layer-temperature" class="layer-checkbox">
+            <label for="layer-temperature">温度数据</label>
+          </div>
+          <div class="layer-item">
+            <input type="checkbox" id="layer-precipitation" class="layer-checkbox">
+            <label for="layer-precipitation">降水数据</label>
+          </div>
+          <!-- 积雪数据（气象水文：固态降水） -->
+          <div class="category-item" data-type="snow-data">
+            <div class="layer-item">
+              <input type="checkbox" id="layer-snow-data" class="layer-checkbox">
+              <label for="layer-snow-data">积雪数据</label>
+            </div>
+          </div>
+
+          <div class="layer-item">
+            <input type="checkbox" id="layer-hydrology" class="layer-checkbox">
+            <label for="layer-hydrology">水文站点</label>
+          </div>
+          <div class="layer-item">
+            <input type="checkbox" id="layer-weather-station" class="layer-checkbox">
+            <label for="layer-weather-station">气象站点</label>
+          </div>
+        </div>
+      </div>
+
+      <!-- 冰冻圈 -->
+      <div class="category" id="cryosphere-category">
+        <div class="category-header">
+          <span>
+            <i class="fa fa-snowflake-o"></i>
+            冰冻圈
+          </span>
+          <i class="fa fa-chevron-down toggle-icon"></i>
+        </div>
+        <div class="category-content">
+          <!-- 冻土分布 -->
+          <div class="category-item" data-type="permafrost">
+            <div class="layer-item">
+              <input type="checkbox" id="layer-cryo-permafrost" class="layer-checkbox">
+              <label for="layer-cryo-permafrost">冻土分布</label>
+            </div>
+          </div>
+          
+          <!-- 冰川分布 -->
+          <div class="category-item" data-type="glacier">
+            <div class="layer-item">
+              <input type="checkbox" id="layer-cryo-glacier" class="layer-checkbox">
+              <label for="layer-cryo-glacier">冰川分布</label>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 社会经济 -->
+      <div class="category">
+        <div class="category-header">
+          <span>
+            <i class="fa fa-building"></i>
+            社会经济
+          </span>
+          <i class="fa fa-chevron-down toggle-icon"></i>
+        </div>
+        <div class="category-content">
+          <div class="layer-item">
+            <input type="checkbox" id="layer-economy" class="layer-checkbox">
+            <label for="layer-economy">GDP</label>
+          </div>
+          <div class="layer-item">
+            <input type="checkbox" id="layer-railway" class="layer-checkbox">
+            <label for="layer-railway">铁路网络</label>
+          </div>
+          <div class="layer-item">
+            <input type="checkbox" id="layer-road" class="layer-checkbox">
+            <label for="layer-road">公路网络</label>
+          </div>
+          <div class="layer-item">
+            <input type="checkbox" id="layer-powerplant" class="layer-checkbox">
+            <label for="layer-powerplant">能源站点</label>
+          </div>
+          <div class="layer-item">
+            <input type="checkbox" id="layer-dam" class="layer-checkbox">
+            <label for="layer-dam">水坝</label>
+          </div>
+          <div class="layer-item">
+            <input type="checkbox" id="layer-reservoir" class="layer-checkbox">
+            <label for="layer-reservoir">水库</label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 使用多个CDN源确保OpenLayers加载成功 -->
+  <script src="js/lib/ol.js"></script>
+
+  <!-- 添加资源加载错误处理 -->
+  <script>
+    // 检查OpenLayers是否加载成功
+    function checkOpenLayersLoaded() {
+      if (typeof ol === 'undefined') {
+        console.error('OpenLayers加载失败，尝试使用本地资源...');
+        // 这里可以添加本地资源加载逻辑
+        alert('地图资源加载失败，请检查网络连接或联系管理员。');
+        return false;
+      }
+      return true;
+    }
+    
+    // 页面加载完成后检查资源
+    window.addEventListener('load', function() {
+      if (!checkOpenLayersLoaded()) {
+        // 如果OpenLayers加载失败，显示错误信息
+        const loadingOverlay = document.getElementById('loading-overlay');
+        if (loadingOverlay) {
+          loadingOverlay.innerHTML = '<div style="text-align: center; padding: 20px; color: red;">地图资源加载失败，请刷新页面或检查网络连接。</div>';
+        }
+      }
+    });
+  </script>
+  
+  <script src="js/ui-components.js"></script>
+  <script src="js/main.js"></script>
+  <script src="js/decision.js"></script>
+  <script src="js/expert.js"></script>
+  <script src="js/decision-content.js"></script>
+  <script>
+    // 下拉菜单交互
+    document.addEventListener('DOMContentLoaded', function() {
+      // 决策支持下拉菜单
+      const decisionDropdown = document.getElementById('decision-dropdown');
+      const decisionSidebar = document.getElementById('decision-sidebar');
+      const decisionSidebarClose = document.getElementById('decision-sidebar-close');
+      const maskEl = document.getElementById('decision-sidebar-mask');
+
+      // 检查元素是否存在
+      if (!decisionDropdown || !decisionSidebar || !decisionSidebarClose || !maskEl) {
+        console.error('决策支持页面的关键元素未找到');
+        return;
+      }
+      
+      // 当前激活的类别
+      let activeCategory = null;
+
+      // 显示决策支持侧边栏
+      function showDecisionSidebar() {
+        decisionSidebar.classList.add('active');
+        maskEl.classList.add('active');
+      }
+
+      // 隐藏决策支持侧边栏（保留类别状态，重新打开时恢复）
+      function hideDecisionSidebar() {
+        decisionSidebar.classList.remove('active');
+        maskEl.classList.remove('active');
+      }
+
+      // 切换类别显示
+      function toggleCategory(category) {
+        // 隐藏所有类别内容
+        const allCategories = document.querySelectorAll('.decision-category-sidebar');
+        allCategories.forEach(cat => { cat.style.display = 'none'; });
+
+        // 显示选中的侧边栏内容（智能体面板需 flex 布局撑满高度，其他分类用 block）
+        const selectedCategory = document.getElementById(`${category}-category-sidebar`);
+        if (selectedCategory) {
+          selectedCategory.style.display = selectedCategory.id === 'llm-category-sidebar' ? 'flex' : 'block';
+        }
+
+        // 更新侧边栏标题
+        const sidebarTitle = document.getElementById('decision-sidebar-title');
+        const categoryName = getCategoryName(category);
+        sidebarTitle.textContent = `决策支持 - ${categoryName}`;
+
+        activeCategory = category;
+        showDecisionSidebar();
+      }
+
+      // 获取类别名称
+      function getCategoryName(category) {
+        const categoryNames = {
+          'non-engineering': '非工程措施',
+          'engineering': '工程措施',
+          'expert': '专家咨询',
+          'llm': '冰冻圈灾害决策智能体',
+          'prevention-example': '防灾实例'
+        };
+        return categoryNames[category] || '决策支持';
+      }
+
+      // 注册导航栏下拉项点击处理（由 main.js 统一导航调用）
+      window.applyNavCategory = (category) => {
+        // 高亮对应的下拉菜单项
+        document.querySelectorAll('#decision-dropdown .dropdown-item').forEach(i => {
+          i.classList.toggle('active', i.dataset.category === category);
+        });
+        // 侧边栏已打开且点击的是当前分类 -> 收起；否则打开/切换
+        if (decisionSidebar.classList.contains('active') && activeCategory === category) {
+          hideDecisionSidebar();
+        } else {
+          toggleCategory(category);
+        }
+      };
+
+      // 关闭按钮点击事件
+      decisionSidebarClose.addEventListener('click', function(e) {
+        e.preventDefault();
+        hideDecisionSidebar();
+      });
+
+      // 点击遮罩关闭
+      maskEl.addEventListener('click', function() {
+        hideDecisionSidebar();
+      });
+
+      // Esc 关闭
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && decisionSidebar.classList.contains('active')) {
+          hideDecisionSidebar();
+        }
+      });
+
+    });
+  </script>
+</body>
+</html>

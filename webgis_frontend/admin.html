@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>青藏高原冰冻圈灾害数字孪生系统</title>
+  <!-- 使用多个CDN源确保OpenLayers加载成功 -->
+  <link rel="stylesheet" href="css/lib/ol.css" />
+  <!-- 移除高德地图API引用 -->
+  <link rel="stylesheet" href="css/styles.css" />
+  <style>
+    /* ============ 系统管理面板 ============ */
+    .admin-overlay { position: fixed; inset: 0; background: rgba(10, 25, 47, 0.55); z-index: 9000; display: flex; align-items: center; justify-content: center; padding: 20px; }
+    .admin-panel { width: min(1150px, 96vw); height: min(760px, 94vh); background: #fff; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,.45); display: flex; flex-direction: column; overflow: hidden; animation: adminIn .18s ease-out; }
+    @keyframes adminIn { from { opacity: 0; transform: translateY(12px);} to { opacity: 1; transform: none;} }
+    .admin-panel-header { background: linear-gradient(135deg, #0b3d6b, #1b5e9e); color: #fff; padding: 12px 18px; display: flex; align-items: center; justify-content: space-between; }
+    .admin-panel-title { font-size: 17px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+    .admin-example-badge { background: rgba(255,255,255,.18); border-radius: 12px; padding: 2px 10px; font-size: 11px; font-weight: normal; margin-left: 2px; }
+    .admin-user-badge { background: rgba(255,255,255,.18); border-radius: 12px; padding: 2px 10px; font-size: 12px; font-weight: normal; margin-left: 6px; }
+    .admin-panel-actions { display: flex; gap: 8px; }
+    .admin-btn { border: none; border-radius: 6px; padding: 7px 14px; font-size: 13px; cursor: pointer; background: #2c7bb6; color: #fff; transition: opacity .15s; }
+    .admin-btn:hover { opacity: .85; }
+    .admin-btn-ghost { background: rgba(255,255,255,.16); color: #fff; }
+    .admin-btn-danger { background: #d7191c; color: #fff; }
+    .admin-btn-sm { padding: 4px 10px; font-size: 12px; border-radius: 4px; }
+    .admin-btn-green { background: #2e9e5b; }
+    .admin-body { flex: 1; display: flex; min-height: 0; }
+    .admin-nav { width: 172px; background: #f4f6f9; border-right: 1px solid #e3e8ef; padding: 12px 8px; overflow-y: auto; }
+    .admin-nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; margin-bottom: 4px; border-radius: 8px; color: #33475b; cursor: pointer; font-size: 14px; text-decoration: none; }
+    .admin-nav-item:hover { background: #e6ecf4; }
+    .admin-nav-item.active { background: #2c7bb6; color: #fff; }
+    .admin-content { flex: 1; padding: 18px 22px; overflow: auto; min-width: 0; }
+    .admin-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+    .admin-toolbar h3 { margin: 0; font-size: 16px; color: #0b3d6b; margin-right: auto; }
+    .admin-search { padding: 6px 10px; border: 1px solid #d0d7de; border-radius: 6px; font-size: 13px; width: 200px; }
+    .admin-table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(16,42,67,.08); }
+    .admin-table th { background: #f0f4f9; color: #33475b; font-weight: 600; padding: 10px 12px; font-size: 13px; text-align: left; border-bottom: 2px solid #e3e8ef; white-space: nowrap; }
+    .admin-table td { padding: 9px 12px; font-size: 13px; border-bottom: 1px solid #eef1f5; color: #33475b; vertical-align: middle; }
+    .admin-table tr:hover td { background: #f7fafd; }
+    .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px; }
+    .badge-ok { background: #e3f5e9; color: #1e7e34; }
+    .badge-off { background: #fdeaea; color: #c0392b; }
+    .badge-blue { background: #e7f0fa; color: #1b5e9e; }
+    .badge-gray { background: #eef1f5; color: #5b6b7c; }
+    .admin-empty { text-align: center; color: #8a99a8; padding: 40px 0; font-size: 14px; }
+    .admin-modal-overlay { position: fixed; inset: 0; background: rgba(10,25,47,.5); z-index: 9500; display: flex; align-items: center; justify-content: center; }
+    .admin-modal { background: #fff; border-radius: 10px; width: min(520px, 92vw); max-height: 88vh; overflow: auto; box-shadow: 0 16px 50px rgba(0,0,0,.4); }
+    .admin-modal-head { background: linear-gradient(135deg,#0b3d6b,#1b5e9e); color: #fff; padding: 12px 16px; font-size: 15px; display: flex; justify-content: space-between; align-items: center; }
+    .admin-modal-head button { background: none; border: none; color: #fff; font-size: 20px; cursor: pointer; }
+    .admin-modal-body { padding: 16px 18px; }
+    .admin-form-row { margin-bottom: 12px; }
+    .admin-form-row label { display: block; font-size: 13px; color: #556; margin-bottom: 5px; }
+    .admin-form-row input, .admin-form-row select, .admin-form-row textarea { width: 100%; padding: 7px 10px; border: 1px solid #d0d7de; border-radius: 6px; font-size: 13px; box-sizing: border-box; }
+    .admin-modal-foot { padding: 12px 18px; border-top: 1px solid #eef1f5; display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+    .admin-btn-cancel { background: #eef1f5; color: #33475b; }
+    .admin-btn-cancel:hover { background: #e2e8f0; }
+    .admin-perm-group-title { margin: 10px 0 4px; font-weight: 600; color: #33475b; font-size: 13px; border-left: 3px solid #2c7bb6; padding-left: 8px; }
+    .admin-perm-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 20px; margin: 4px 0 2px; }
+    .admin-perm-grid label { font-size: 13px; display: flex; align-items: center; gap: 8px; color: #33475b; padding: 4px 0; line-height: 1.4; }
+    .admin-perm-grid label input[type="checkbox"] { width: 16px; height: 16px; margin: 0; flex: 0 0 auto; vertical-align: middle; }
+    .admin-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+    .admin-stat { background: #f7fafd; border: 1px solid #e3e8ef; border-radius: 10px; padding: 14px 16px; min-height: 64px; }
+    .admin-stat .v { font-size: 22px; font-weight: 700; color: #0b3d6b; line-height: 1.2; word-break: break-all; }
+    .admin-stat .k { font-size: 12px; color: #778899; margin-top: 4px; }
+    .admin-stat-section { margin-bottom: 18px; }
+    .admin-stat-section-title { font-size: 13px; color: #0b3d6b; font-weight: 600; margin: 0 0 10px; padding-left: 10px; border-left: 3px solid #2c7bb6; }
+    .admin-status-row { display: flex; justify-content: space-between; padding: 9px 4px; border-bottom: 1px dashed #eef1f5; font-size: 13px; }
+    .admin-status-row .k { color: #778899; }
+    .admin-status-row .v { color: #33475b; font-weight: 500; }
+      .admin-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .admin-chart-box { border: 1px solid #e3e8ef; border-radius: 10px; padding: 10px; background: #fbfcfe; }
+    .admin-chart-box h4 { margin: 0 0 6px; font-size: 13px; color: #33475b; }
+    .admin-chart-box .chart { height: 220px; }
+    .admin-pager { display: flex; align-items: center; gap: 10px; margin-top: 12px; justify-content: flex-end; font-size: 13px; color: #556; }
+    .admin-pager button { padding: 4px 12px; border: 1px solid #d0d7de; background: #fff; border-radius: 6px; cursor: pointer; }
+    .admin-pager button:disabled { opacity: .45; cursor: not-allowed; }
+    .data-folder-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+    .data-folder-card { background: #f7fafd; border: 1px solid #e3e8ef; border-radius: 10px; padding: 14px 16px; cursor: pointer; transition: .15s; }
+    .data-folder-card:hover { border-color: #2c7bb6; box-shadow: 0 4px 12px rgba(16,42,67,.12); }
+    .data-folder-icon { font-size: 26px; color: #eab308; margin-bottom: 6px; }
+    .data-folder-name { font-size: 14px; color: #33475b; font-weight: 600; }
+    .data-folder-meta { font-size: 12px; color: #778899; margin-top: 4px; }</style>
+  <style>
+    .admin-logout-btn {
+      position: absolute;
+      right: 38px;
+      top: 10px;
+      background: #d7191c;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      padding: 4px 10px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .admin-logout-btn:hover { opacity: 0.85; }
+  </style>
+  <!-- 使用多个CDN源确保Font Awesome加载成功 -->
+  <link href="css/lib/font-awesome.min.css" rel="stylesheet">
+</head>
+<body>
+  <!-- 加载遮罩层 -->
+  <div class="loading-overlay" id="loading-overlay">
+    <div class="loading-spinner"></div>
+    <div class="loading-text" id="loading-text">系统正在加载中，请稍候...</div>
+  </div>
+
+  <!-- 顶部导航 -->
+  <div class="topbar">
+    <div class="topbar-row1">
+      <div class="logo">青藏高原冰冻圈灾害数字孪生系统</div>
+      <div class="user">
+        <span><i style="font-size:11px;"></i></span>
+      </div>
+    </div>
+    <div class="topbar-row2">
+      <div class="nav-links">
+        <a href="index.html">首页</a>
+        <div class="dropdown-container">
+          <a href="#" class="dropdown-toggle" data-page="query">灾害数据库</a>
+          <div class="dropdown-menu" id="disaster-dropdown">
+            <a href="query.html?cat=flood" class="dropdown-item" data-category="flood">洪水灾害数据库</a>
+            <a href="query.html?cat=snow" class="dropdown-item" data-category="snow">积雪灾害数据库</a>
+            <a href="query.html?cat=ice" class="dropdown-item" data-category="ice">冰川灾害数据库</a>
+            <a href="query.html?cat=permafrost" class="dropdown-item" data-category="permafrost">冻土灾害数据库</a>
+          </div>
+        </div>
+        <div class="dropdown-container">
+          <a href="#" class="dropdown-toggle" data-page="simulate">灾害过程模拟</a>
+          <div class="dropdown-menu" id="simulate-dropdown">
+            <a href="simulate.html?cat=flood-simulate" class="dropdown-item" data-category="flood-simulate">洪水灾害过程模拟</a>
+            <a href="simulate.html?cat=snow-simulate" class="dropdown-item" data-category="snow-simulate">积雪灾害过程模拟</a>
+            <a href="simulate.html?cat=ice-simulate" class="dropdown-item" data-category="ice-simulate">冰川灾害过程模拟</a>
+            <a href="simulate.html?cat=permafrost-simulate" class="dropdown-item" data-category="permafrost-simulate">冻土灾害过程模拟</a>
+          </div>
+        </div>
+        <div class="dropdown-container">
+          <a href="#" class="dropdown-toggle" data-page="alert">风险评估</a>
+          <div class="dropdown-menu" id="alert-dropdown">
+            <a href="alert.html?cat=flood" class="dropdown-item" data-category="flood">洪水灾害风险评估</a>
+            <a href="alert.html?cat=snow" class="dropdown-item" data-category="snow">积雪灾害风险评估</a>
+            <a href="alert.html?cat=ice" class="dropdown-item" data-category="ice">冰川灾害风险评估</a>
+            <a href="alert.html?cat=permafrost" class="dropdown-item" data-category="permafrost">冻土灾害风险评估</a>
+          </div>
+        </div>
+        <div class="dropdown-container">
+          <a href="#" class="dropdown-toggle" data-page="decision">决策支持</a>
+          <div class="dropdown-menu" id="decision-dropdown">
+            <a href="decision.html?cat=llm" class="dropdown-item" data-category="llm">决策支持智能体</a>
+            <a href="decision.html?cat=expert" class="dropdown-item" data-category="expert">专家咨询</a>
+            <a href="decision.html?cat=prevention-example" class="dropdown-item" data-category="prevention-example">防灾实例</a>
+            <a href="decision.html?cat=non-engineering" class="dropdown-item" data-category="non-engineering">非工程措施</a>
+            <a href="decision.html?cat=engineering" class="dropdown-item" data-category="engineering">工程措施</a>
+          </div>
+        </div>
+        <div class="dropdown-container">
+          <a href="#" class="dropdown-toggle" data-page="admin">系统管理</a>
+          <div class="dropdown-menu" id="admin-dropdown">
+            <a href="admin.html?cat=user" class="dropdown-item" data-category="user">用户管理</a>
+            <a href="admin.html?cat=role" class="dropdown-item" data-category="role">角色管理</a>
+            <a href="admin.html?cat=permission" class="dropdown-item" data-category="permission">权限管理</a>
+            <a href="admin.html?cat=log" class="dropdown-item" data-category="log">系统日志</a>
+            <a href="admin.html?cat=data" class="dropdown-item" data-category="data">数据管理</a>
+            <a href="admin.html?cat=agent" class="dropdown-item" data-category="agent">智能体设置</a>
+            <a href="admin.html?cat=setting" class="dropdown-item" data-category="setting">系统设置</a>
+            <a href="admin.html?cat=status" class="dropdown-item" data-category="status">系统状态</a>
+          </div>
+        </div>
+      </div>
+      <div class="searchbar">
+        <input type="search" id="place-search" placeholder="搜索地点或流域…" />
+        <button id="search-btn" title="搜索">🔍</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 地图 -->
+  <div id="map" class="map-container">
+  </div>
+
+  <!-- 右侧浮动控制面板 -->
+  <div class="sidepanel">
+    <h3>查看选项</h3>
+    <div class="mode-switch">
+      <button class="active" id="btn-map">普通地图</button>
+      <button id="btn-mix">卫星地图</button>
+    </div>
+    
+    <!-- 图层控制分类 -->
+    <div class="category-container">
+      <!-- 基础地理 -->
+      <div class="category">
+        <div class="category-header">
+          <span>
+            <i class="fa fa-map-o"></i>
+            基础地理
+          </span>
+          <i class="fa fa-chevron-down toggle-icon"></i>
+        </div>
+        <div class="category-content">
+          <div class="layer-item">
+            <input type="checkbox" id="layer-basin" class="layer-checkbox">
+            <label for="layer-basin">一级流域边界</label>
+          </div>
+          <div class="layer-item">
+            <input type="checkbox" id="layer-basin-5" class="layer-checkbox">
+            <label for="layer-basin-5">五级流域边界</label>
+          </div>
+          <div class="layer-item">
+            <input type="checkbox" id="layer-river" class="layer-checkbox">
+            <label for="layer-river">河网水系</label>
+          </div>
+          <div class="layer-item">
+            <input type="checkbox" id="layer-lake" class="layer-checkbox">
+            <label for="layer-lake">湖泊分布</label>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 行政区划 -->
+      <div class="category">
+        <div class="category-header">
+          <span>
+            <i class="fa fa-flag"></i>
+            行政区划
+          </span>
+          <i class="fa fa-chevron-down toggle-icon"></i>
+        </div>
+        <div class="category-content">
+          <!-- 行政中心 -->
+          <div class="layer-item">
+            <input type="checkbox" id="layer-capital-settlement" class="layer-checkbox">
+            <label for="layer-capital-settlement">省级行政中心</label>
+          </div>
+          <div class="layer-item">
+            <input type="checkbox" id="layer-city-settlement" class="layer-checkbox">
+            <label for="layer-city-settlement">地市级行政中心</label>
+          </div>
+          <div class="layer-item">
+            <input type="checkbox" id="layer-settlement" class="layer-checkbox">
+            <label for="layer-settlement">县级行政中心</label>
+          </div>
+          
+          <!-- 行政边界 -->
+          <div class="layer-item">
+            <input type="checkbox" id="layer-boundary-country" class="layer-checkbox">
+            <label for="layer-boundary-country">国界</label>
+          </div>
+          <div class="layer-item">
+            <input type="checkbox" id="layer-boundary-province" class="layer-checkbox">
+            <label for="layer-boundary-province">省界</label>
+          </div>
+          <div class="layer-item">
+            <input type="checkbox" id="layer-boundary-city" class="layer-checkbox">
+            <label for="layer-boundary-city">地级行政界线</label>
+          </div>
+          <div class="layer-item">
+            <input type="checkbox" id="layer-boundary-county" class="layer-checkbox">
+            <label for="layer-boundary-county">县级行政界线</label>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 气象水文 -->
+      <div class="category">
+        <div class="category-header">
+          <span>
+            <i class="fa fa-tint"></i>
+            气象水文
+          </span>
+          <i class="fa fa-chevron-down toggle-icon"></i>
+        </div>
+        <div class="category-content">
+          <div class="layer-item">
+            <input type="checkbox" id="layer-temperature" class="layer-checkbox">
+            <label for="layer-temperature">温度数据</label>
+          </div>
+          <div class="layer-item">
+            <input type="checkbox" id="layer-precipitation" class="layer-checkbox">
+            <label for="layer-precipitation">降水数据</label>
+          </div>
+          <!-- 积雪数据（气象水文：固态降水） -->
+          <div class="category-item" data-type="snow-data">
+            <div class="layer-item">
+              <input type="checkbox" id="layer-snow-data" class="layer-checkbox">
+              <label for="layer-snow-data">积雪数据</label>
+            </div>
+          </div>
+
+          <div class="layer-item">
+            <input type="checkbox" id="layer-hydrology" class="layer-checkbox">
+            <label for="layer-hydrology">水文站点</label>
+          </div>
+          <div class="layer-item">
+            <input type="checkbox" id="layer-weather-station" class="layer-checkbox">
+            <label for="layer-weather-station">气象站点</label>
+          </div>
+        </div>
+      </div>
+
+      <!-- 冰冻圈 -->
+      <div class="category" id="cryosphere-category">
+        <div class="category-header">
+          <span>
+            <i class="fa fa-snowflake-o"></i>
+            冰冻圈
+          </span>
+          <i class="fa fa-chevron-down toggle-icon"></i>
+        </div>
+        <div class="category-content">
+          <!-- 冻土分布 -->
+          <div class="category-item" data-type="permafrost">
+            <div class="layer-item">
+              <input type="checkbox" id="layer-cryo-permafrost" class="layer-checkbox">
+              <label for="layer-cryo-permafrost">冻土分布</label>
+            </div>
+          </div>
+          
+          <!-- 冰川分布 -->
+          <div class="category-item" data-type="glacier">
+            <div class="layer-item">
+              <input type="checkbox" id="layer-cryo-glacier" class="layer-checkbox">
+              <label for="layer-cryo-glacier">冰川分布</label>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 社会经济 -->
+      <div class="category">
+        <div class="category-header">
+          <span>
+            <i class="fa fa-building"></i>
+            社会经济
+          </span>
+          <i class="fa fa-chevron-down toggle-icon"></i>
+        </div>
+        <div class="category-content">
+          <div class="layer-item">
+            <input type="checkbox" id="layer-economy" class="layer-checkbox">
+            <label for="layer-economy">GDP</label>
+          </div>
+          <div class="layer-item">
+            <input type="checkbox" id="layer-railway" class="layer-checkbox">
+            <label for="layer-railway">铁路网络</label>
+          </div>
+          <div class="layer-item">
+            <input type="checkbox" id="layer-road" class="layer-checkbox">
+            <label for="layer-road">公路网络</label>
+          </div>
+          <div class="layer-item">
+            <input type="checkbox" id="layer-powerplant" class="layer-checkbox">
+            <label for="layer-powerplant">能源站点</label>
+          </div>
+          <div class="layer-item">
+            <input type="checkbox" id="layer-dam" class="layer-checkbox">
+            <label for="layer-dam">水坝</label>
+          </div>
+          <div class="layer-item">
+            <input type="checkbox" id="layer-reservoir" class="layer-checkbox">
+            <label for="layer-reservoir">水库</label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 系统管理面板 -->
+  <div class="admin-overlay" id="admin-overlay" style="display:none;">
+    <div class="admin-panel">
+      <div class="admin-panel-header">
+        <div class="admin-panel-title">
+          <i class="fa fa-cogs"></i>
+          <span>系统管理</span>
+          <span class="admin-example-badge">示例 · 仅供参考</span>
+          <span class="admin-user-badge" id="admin-current-user"></span>
+        </div>
+        <div class="admin-panel-actions">
+          <button class="admin-btn admin-btn-ghost" id="admin-refresh-btn" title="刷新"><i class="fa fa-refresh"></i> 刷新</button>
+          <button class="admin-btn admin-btn-danger" id="admin-logout-btn" title="退出登录"><i class="fa fa-sign-out"></i> 退出</button>
+          <button class="admin-btn admin-btn-ghost" id="admin-close-btn" title="关闭">&times;</button>
+        </div>
+      </div>
+      <div class="admin-body">
+        <div class="admin-nav">
+          <a class="admin-nav-item active" data-cat="user"><i class="fa fa-users"></i>用户管理</a>
+          <a class="admin-nav-item" data-cat="role"><i class="fa fa-user-circle"></i>角色管理</a>
+          <a class="admin-nav-item" data-cat="permission"><i class="fa fa-key"></i>权限管理</a>
+          <a class="admin-nav-item" data-cat="log"><i class="fa fa-history"></i>系统日志</a>
+          <a class="admin-nav-item" data-cat="data"><i class="fa fa-database"></i>数据管理</a>
+          <a class="admin-nav-item" data-cat="agent"><i class="fa fa-comments"></i>智能体设置</a>
+          <a class="admin-nav-item" data-cat="setting"><i class="fa fa-cog"></i>系统设置</a>
+          <a class="admin-nav-item" data-cat="status"><i class="fa fa-dashboard"></i>系统状态</a>
+        </div>
+        <div class="admin-content" id="admin-content"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 使用多个CDN源确保OpenLayers加载成功 -->
+  <script src="js/lib/ol.js"></script>
+
+  <!-- 添加资源加载错误处理 -->
+  <script>
+    // 检查OpenLayers是否加载成功
+    function checkOpenLayersLoaded() {
+      if (typeof ol === 'undefined') {
+        console.error('OpenLayers加载失败，尝试使用本地资源...');
+        // 这里可以添加本地资源加载逻辑
+        alert('地图资源加载失败，请检查网络连接或联系管理员。');
+        return false;
+      }
+      return true;
+    }
+    
+    // 页面加载完成后检查资源
+    window.addEventListener('load', function() {
+      if (!checkOpenLayersLoaded()) {
+        // 如果OpenLayers加载失败，显示错误信息
+        const loadingOverlay = document.getElementById('loading-overlay');
+        if (loadingOverlay) {
+          loadingOverlay.innerHTML = '<div style="text-align: center; padding: 20px; color: red;">地图资源加载失败，请刷新页面或检查网络连接。</div>';
+        }
+      }
+    });
+  </script>
+  
+  <script src="js/lib/echarts.min.js"></script>
+  <script src="js/ui-components.js"></script>
+  <script src="js/main.js"></script>
+  <script src="js/admin.js"></script>
+</body>
+</html>
