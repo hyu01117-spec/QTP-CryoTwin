@@ -105,7 +105,7 @@
     const label = meta ? meta.label
       : key.includes('inundation') ? '淹没水深'
       : key.includes('flood') ? '洪水'
-      : key.includes('snowmelt') ? '融雪量'
+      : key.includes('snowmelt') ? '融雪径流'
       : key.includes('runoff') ? '径流'
       : key.includes('temperature') ? '温度'
       : key.includes('precipitation') ? '降水'
@@ -122,13 +122,18 @@
     return formatted;
   }
 
-  // 建图例控件 —— 布局/配色与 simulate.js createLegend（模拟部分）完全一致：
-  //   容器 140px、标题中文名/单位、16 档等分 [min,max]、顶档"大于"、底档"小于"、
-  //   中间档 "下 - 上"、色块取每档中点对应的色带色、色块 28×14。
-  // 唯一差异：simulate 对 runoff 会把下界 clamp 到 0，本模块保留真实 minValue
-  //   （温度含负值、降水 0 透明，故 minValue 即可为真实分位下界）。
-  //   decimalPlaces 按档宽自适应且保证非零下界不显示成 0（同 runoff 分支）。
-  function createLegendControl(title, minValue, maxValue, colorStops) {
+  // 建图例控件 —— 布局/档位/标签**完全对齐 simulate.js createLegend（模拟部分）**：
+  //   容器 150px、8px padding、12px 字号、minHeight 398px、overflow:visible（无滚动条）；
+  //   16 档等分 [effectiveMinValue, maxValue]、色块取每档中点对应的色带色、色块 28×14；
+  //   档位行距 8px、标签 white-space:nowrap（保证 16 档严格一行、与模拟图例等高）；
+  //   区间连接符半角 `~`（带空格），即 `0.82 ~ 0.88`；顶档「大于」、底档「小于」；
+  //   小数位自适应、上限 2 位（min(2, max(0, ceil(-log10(档宽))))，与模拟 runoff 分支同源）。
+  // 保留项（用户拍板，不动）：
+  //   - 气温含负值：effectiveMinValue 对温度取真实(可负)下界，不 clamp 到 0；
+  //   - 色带：温度 = 彩虹反转(低温蓝→高温红)，降水等 = 原版彩虹（colorStopsFor 已处理）。
+  // 降水等非负变量仍按模拟 runoff 处理：下界 clamp 到 0。
+  function createLegendControl(title, minValue, maxValue, colorStops, variable) {
+    const isTemp = isTempVar(variable);
     const stops = colorStops || RAINBOW_STOPS;
     const div = document.createElement('div');
     div.className = 'ol-legend';
@@ -140,10 +145,11 @@
       position: 'absolute',
       bottom: '25px',
       left: '150px',
-      width: '140px',
-      maxWidth: '140px',
-      maxHeight: '400px',
-      overflow: 'auto',
+      width: '150px',
+      maxWidth: '150px',
+      // 不设 maxHeight：由 16 档内容决定高度，避免滚动条；minHeight 保证与模拟图例等高
+      minHeight: '398px',
+      overflow: 'visible',
       boxSizing: 'border-box',
       borderRadius: '8px',
       color: '#e2e8f0',
@@ -160,60 +166,80 @@
 
     const numLegendItems = 16;
     const midCount = numLegendItems - 2;
-    const effectiveMinValue = minValue;   // 不做 runoff 的 clamp(0)，保留真实(可负)下界
+    // 温度保留真实(可负)下界；降水等非负变量 clamp 到 0（同 simulate runoff 的处理）
+    const effectiveMinValue = isTemp ? minValue : Math.max(0, minValue);
     const interval = (maxValue - effectiveMinValue) / midCount;
     const span = maxValue - effectiveMinValue;
 
-    // 小数位数：按档宽自适应，且保证非零小下界不显示成 0（对齐 simulate runoff 分支逻辑）
-    let decimalPlaces = 2;
-    if (span > 0 && interval > 0) {
-      decimalPlaces = Math.min(6, Math.max(2, Math.ceil(-Math.log10(interval))));
-      // 下界接近 0（如降水 0.003）时提升精度，避免四舍五入成 "小于 0"
-      while (decimalPlaces < 6 &&
-             parseFloat(effectiveMinValue.toFixed(decimalPlaces)) === 0 &&
-             Math.abs(effectiveMinValue) > 0) {
-        decimalPlaces++;
-      }
-    }
+    // 小数位（单位 ℃/mm）：温度与降水图例**固定 2 位小数**（用户 2026-09-11 拍板：气象图例统一保留两位小数）。
+    // 不再随档宽自适应降位；formatValue 对整数档会去掉 ".00"（如 5 → "5"），小数档保持 2 位（如 5.3 → "5.30"）。
+    const decimalPlaces = 2;
 
-    for (let i = 0; i < numLegendItems; i++) {
+    if (Math.abs(maxValue - effectiveMinValue) < 1e-10) {
+      // 退化场景（等值图像）：只渲染一行
       const row = document.createElement('div');
       row.style.display = 'flex';
       row.style.alignItems = 'center';
-      row.style.marginBottom = '6px';
+      row.style.marginBottom = '8px';
 
       const colorBox = document.createElement('div');
       colorBox.style.width = '28px';
       colorBox.style.height = '14px';
       colorBox.style.marginRight = '8px';
       colorBox.style.border = '1px solid #475569';
-
-      let t, label;
-      if (i === 0) {
-        // 顶档：≥ 98% 分位（渲染 clamp 到色带高值端）
-        t = 1;
-        label = `大于 ${formatValue(maxValue, decimalPlaces)}`;
-      } else if (i === numLegendItems - 1) {
-        // 底档：低于 2% 分位的值（0 值不参与配色、图上透明，故用"小于"开区间）
-        t = 0;
-        label = `小于 ${formatValue(effectiveMinValue, decimalPlaces)}`;
-      } else {
-        const upperBound = maxValue - (i - 1) * interval;
-        const lowerBound = maxValue - i * interval;
-        // 色块取该档中点对应的归一化值，保证图例颜色与渲染色带严格一致
-        const midPoint = (upperBound + lowerBound) / 2;
-        t = span > 0 ? (midPoint - effectiveMinValue) / span : 0.5;
-        label = `${formatValue(lowerBound, decimalPlaces)} - ${formatValue(upperBound, decimalPlaces)}`;
-      }
-
-      const [r, g, b] = interpolateColor(t, stops);
-      colorBox.style.background = `rgb(${r}, ${g}, ${b})`;
+      const [r0, g0, b0] = interpolateColor(0.5, stops);
+      colorBox.style.background = `rgb(${r0}, ${g0}, ${b0})`;
       row.appendChild(colorBox);
 
       const valueText = document.createElement('span');
-      valueText.textContent = label;
+      valueText.textContent = formatValue(maxValue, decimalPlaces);
+      valueText.style.whiteSpace = 'nowrap';
       row.appendChild(valueText);
       div.appendChild(row);
+    } else {
+      const lastIdx = numLegendItems - 1;
+      for (let i = 0; i < numLegendItems; i++) {
+        const row = document.createElement('div');
+        row.style.display = 'flex';
+        row.style.alignItems = 'center';
+        row.style.marginBottom = '8px';
+
+        const colorBox = document.createElement('div');
+        colorBox.style.width = '28px';
+        colorBox.style.height = '14px';
+        colorBox.style.marginRight = '8px';
+        colorBox.style.border = '1px solid #475569';
+
+        let t, label;
+        if (i === 0) {
+          // 顶档：大于 上界（渲染 clamp 到色带高值端）
+          t = 1;
+          label = `大于 ${formatValue(maxValue, decimalPlaces)}`;
+        } else if (i === lastIdx) {
+          // 底档：小于 下界（气温保留可负下界；降水等下界 clamp 到 0）
+          t = 0;
+          label = `小于 ${formatValue(effectiveMinValue, decimalPlaces)}`;
+        } else {
+          const upperBound = maxValue - (i - 1) * interval;
+          const lowerBound = maxValue - i * interval;
+          // 色块取该档中点对应的归一化值，保证图例颜色与渲染色带严格一致
+          const mid = (upperBound + lowerBound) / 2;
+          t = span > 0 ? (mid - effectiveMinValue) / span : 0.5;
+          // 区间：下界 ~ 上界（半角 ~ 带空格；与模拟图例一致）
+          label = `${formatValue(lowerBound, decimalPlaces)} ~ ${formatValue(upperBound, decimalPlaces)}`;
+        }
+
+        const [r, g, b] = interpolateColor(t, stops);
+        colorBox.style.background = `rgb(${r}, ${g}, ${b})`;
+        row.appendChild(colorBox);
+
+        const valueText = document.createElement('span');
+        valueText.textContent = label;
+        // 档位标签不换行：换行会让个别档变成两行，图例高度就会不一致、易顶破容器产生滚动条
+        valueText.style.whiteSpace = 'nowrap';
+        row.appendChild(valueText);
+        div.appendChild(row);
+      }
     }
 
     return new ol.control.Control({ element: div });
@@ -325,7 +351,9 @@
       map.addLayer(layer);
 
       // 图例绑定到图层（WeakMap 便于移除时统一回收）
-      const legend = createLegendControl(varDisplayName(variable), minV, maxV, stops);
+      // 传入 variable：内部据此定色带（温度反转彩虹）、下界是否 clamp 到 0（温度不 clamp）
+      const legend = createLegendControl(
+        varDisplayName(variable), minV, maxV, stops, variable);
       map.addControl(legend);
       _legendByLayer.set(layer, legend);
 

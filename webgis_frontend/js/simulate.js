@@ -249,7 +249,7 @@ document.addEventListener('DOMContentLoaded', () => {
             'runoff': '径流',
             'inundation': '淹没水深',
             'flood': '洪水',
-            'snowmelt': '融雪量',
+            'snowmelt': '融雪径流',
             'temperature_2m': '日均温',
             'temperature_2m_max': '日最高温',
             'total_precipitation_sum': '日总降水',
@@ -557,12 +557,20 @@ document.addEventListener('DOMContentLoaded', () => {
         varName = i18n.variables[varKey]
             || (varKey.includes('inundation') ? '淹没水深'
                 : varKey.includes('flood') ? '洪水'
-                : varKey.includes('snowmelt') ? '融雪量'
+                : varKey.includes('snowmelt') ? '融雪径流'
                 : varKey.includes('runoff') ? '径流'
                 : '径流');
         unit = i18n.units[varKey] || (isRunoff ? 'mm' : '');
         displayVariable = unit ? `${varName}/${unit}` : varName;
 
+        // 图例高度策略（2026-09-11）：
+        // 本图例被"灾害过程模拟"下三个功能共用 —— 径流模拟 / 洪水识别 / 淹没模拟。
+        // 原先设 maxHeight:400px + overflow:auto，16 档里只要有一档标签换行
+        // （径流小数位最多 6 位，如 "0.123456 - 0.123457"），总高就超过 400px，
+        // 于是出现纵向拖拉条、末档被截断，必须手动拖拽才能看全。
+        // 现改为：不设高度上限（内容多高就多高，自然向上延伸，锚点是 bottom 所以不跑出视口）
+        // + overflow:visible（杜绝任何滚动条）+ 加宽档位行避免标签换行，
+        // 三个功能图例高度一致且始终完整可见。
         const legendDiv = document.createElement('div');
         legendDiv.className = 'ol-legend';
         Object.assign(legendDiv.style, {
@@ -573,10 +581,11 @@ document.addEventListener('DOMContentLoaded', () => {
             position: 'absolute',
             bottom: '25px',
             left: '150px',
-            width: '140px',
-            maxWidth: '140px',
-            maxHeight: '400px',
-            overflow: 'auto',
+            width: '150px',
+            maxWidth: '150px',
+            // 不设 maxHeight：由 16 档内容决定高度，避免滚动条
+            minHeight: '398px',   // 16 档 + 标题的完整高度，保证三个功能图例高度统一
+            overflow: 'visible',
             boxSizing: 'border-box',
             borderRadius: '8px',
             color: '#e2e8f0',
@@ -596,26 +605,23 @@ document.addEventListener('DOMContentLoaded', () => {
         const numLegendItems = 16;
         const midCount = numLegendItems - 2;
 
-        // 小数位数按档宽自适应：径流量级常在 0.0x，跨度只有零点零几，
-        // 固定 2 位小数会让相邻档四舍五入后显示成 "0.12 - 0.12" 这种无效区间。
-        // 这里按档宽决定位数（档宽越小位数越多），上限 6 位避免标签过长。
-        let decimalPlaces = isRunoff ? 2 : 0;
+        // 小数位数（单位 mm）：实用精度到 0.01mm（2 位）已足够。
+        // 跨度大时按档宽自动降为 1 位或整数；不再为极小档宽把位数抬到 3~6 位——
+        // 毫米尺度下那是无意义精度（浮点噪声），且会让图例标签冗长、把 16 档撑高触发滚动条。
+        // 原「下界=0 时不显示成 0」的保护循环会让 0.toFixed(任意位) 恒≤0 而一路加到 6 位，已删除。
+        let decimalPlaces = 0;
         if (isRunoff) {
             const iv = (maxValue - effectiveMinValue) / midCount;
             decimalPlaces = iv > 0
-                ? Math.min(6, Math.max(2, Math.ceil(-Math.log10(iv))))
-                : 2;
-            // 保证下界不因四舍五入显示成 0
-            while (decimalPlaces < 6 && parseFloat(effectiveMinValue.toFixed(decimalPlaces)) <= 0) {
-                decimalPlaces++;
-            }
+                ? Math.min(2, Math.max(0, Math.ceil(-Math.log10(iv))))
+                : 0;
         }
 
         if (Math.abs(maxValue - effectiveMinValue) < 1e-10) {
             const row = document.createElement('div');
             row.style.display = 'flex';
             row.style.alignItems = 'center';
-            row.style.marginBottom = '6px';
+            row.style.marginBottom = '8px';
 
             const colorBox = document.createElement('div');
             colorBox.style.width = '28px';
@@ -643,7 +649,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const row = document.createElement('div');
                 row.style.display = 'flex';
                 row.style.alignItems = 'center';
-                row.style.marginBottom = '6px';
+                row.style.marginBottom = '8px';
 
                 const colorBox = document.createElement('div');
                 colorBox.style.width = '28px';
@@ -673,7 +679,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     t = span > 0 ? (mid - effectiveMinValue) / span : 0.5;
                     const lowerStr = isRunoff ? formatValue(lowerBound, decimalPlaces) : Math.round(lowerBound);
                     const upperStr = isRunoff ? formatValue(upperBound, decimalPlaces) : Math.round(upperBound);
-                    label = `${lowerStr} - ${upperStr}`;
+                    label = `${lowerStr} ~ ${upperStr}`;
                 }
 
                 const [r, g, b] = interpolateColor(t, colorStops);
@@ -683,6 +689,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const valueText = document.createElement('span');
                 valueText.textContent = label;
+                // 档位标签不换行：换行会让个别档变成两行，
+                // 三个功能的图例高度就会不一致，且总高容易顶破容器产生滚动条。
+                valueText.style.whiteSpace = 'nowrap';
 
                 row.appendChild(valueText);
                 legendDiv.appendChild(row);
