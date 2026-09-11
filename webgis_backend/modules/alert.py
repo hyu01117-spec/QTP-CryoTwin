@@ -184,7 +184,7 @@ def _load_county_gdp_points(target_crs):
     返回：np.array shape=(N,2) 坐标(在target_crs下), np.array shape=(N,) gdp值
     """
     base_dir = current_app.config["BASE_DIR"]
-    geo_path = os.path.join(base_dir, "data", "raw", "geo", "economy_counties.geojson")
+    geo_path = os.path.join(base_dir, "data", "raw", "geo", "socioeconomic", "economy_counties.geojson")
     csv_path = os.path.join(base_dir, "data", "raw", "economy", "GDP_data.csv")
 
     if not os.path.exists(geo_path):
@@ -273,7 +273,7 @@ def _load_county_population_points(target_crs):
     返回：np.array shape=(N,2) 坐标(在target_crs下), np.array shape=(N,) 人口值
     """
     base_dir = current_app.config["BASE_DIR"]
-    geo_path = os.path.join(base_dir, "data", "raw", "geo", "economy_counties.geojson")
+    geo_path = os.path.join(base_dir, "data", "raw", "geo", "socioeconomic", "economy_counties.geojson")
     if not os.path.exists(geo_path):
         raise FileNotFoundError(f"县区矢量不存在: {geo_path}")
 
@@ -713,7 +713,7 @@ NAME_ALIAS = {"合作市": "夏河县"}
 def _load_geo_counties(target_crs):
     """加载 economy_counties 并 reproject，附加 _key(规范县名) 列，返回 gdf。"""
     base_dir = current_app.config["BASE_DIR"]
-    geo_path = os.path.join(base_dir, "data", "raw", "geo", "economy_counties.geojson")
+    geo_path = os.path.join(base_dir, "data", "raw", "geo", "socioeconomic", "economy_counties.geojson")
     gdf = gpd.read_file(geo_path)
     if gdf.crs is None:
         gdf.set_crs("EPSG:3857", inplace=True)
