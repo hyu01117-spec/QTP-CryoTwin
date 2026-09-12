@@ -115,7 +115,7 @@ const map = window.map = new ol.Map({
     baseLayers['normal']
   ],
   view: new ol.View({
-    // 默认聚焦位置（用户设定：东经94.1691度，北纬32.8524度，缩放5.5）
+    // 子页面（非首页）默认聚焦位置（用户设定：东经94.1691度，北纬32.8524度，缩放5.5）
     center: ol.proj.fromLonLat([94.1691, 32.8524]),
     zoom: 5.5
   }),
@@ -130,6 +130,15 @@ baseLayers['hybrid'].forEach(layer => layer.setVisible(false));
 const isHomePage = window.location.pathname.endsWith('index.html') ||
                    window.location.pathname.endsWith('/') ||
                    window.location.pathname === '';
+
+// 首页与子页面使用不同的默认聚焦位置（用户分别设定）
+if (isHomePage) {
+  // 首页：聚焦青藏高原西部（东经84.7950度，北纬32.9394度，缩放5.5）
+  map.getView().setCenter(ol.proj.fromLonLat([84.7950, 32.9394]));
+  map.getView().setZoom(5.5);
+}
+// 非首页（query/simulate/alert/decision 等）保持上面 View 定义的东部默认聚焦
+// （东经94.1691度，北纬32.8524度，缩放5.5）
 
 // 底图切换函数
 function switchBasemap(type) {
