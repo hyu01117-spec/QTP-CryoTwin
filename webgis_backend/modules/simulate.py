@@ -2,6 +2,7 @@ import glob
 import datetime
 import os
 import threading
+import tempfile
 import numpy as np
 import sqlite3
 import rasterio
@@ -18,6 +19,10 @@ from modules.runoff_engine import (
     DEFAULT_BATCH_PIXELS, MAX_BATCH_PIXELS)
 
 simulate_bp = Blueprint('simulate', __name__, url_prefix='/api/simulate')
+
+# 洪水淹没结果写出锁：串行化所有淹没结果 TIFF 的写出，避免两个并发请求
+# （侧边栏/主区两个入口或重复点击）抢同一批固定文件名造成 Windows 文件锁冲突。
+FLOOD_WRITE_LOCK = threading.Lock()
 
 # 模型定义已收口到 modules/runoff_engine.py（单一定义，训练/推理共用语义）。
 # 这里的 RunoffLSTM 只是再导出，避免其他模块的旧 import 失效。
@@ -441,9 +446,10 @@ def _align_grid(arr, src_transform, src_crs, ref_shape, ref_transform, ref_crs,
     """把 arr 对齐到参考网格。
 
     网格完全一致时原样返回（零开销）。否则用 rasterio.warp.reproject 做带平移的
-    重投影 —— 不能用 scipy.ndimage.zoom：它只做缩放、不做平移。阈值场原本是
-    1557×3478 / left=73.446，研究区是 1560×4082 / left=68.020，横向差 604 像元，
-    用 zoom 会把西藏东部的阈值搬到新疆西部去判定，错位约 540 km。
+    重投影 —— 不能用 scipy.ndimage.zoom：它只做缩放、不做平移，会把阈值场在
+    地理上整片平移错位（曾实测 ~540 km / 数百像元的横移，导致西藏东部的阈值被
+    搬到新疆西部去判定）。故只用 rasterio.warp.reproject + nearest。阈值场与径流
+    网格的"谁大谁小"不固定（取决于裁剪历史），本函数两种方向都能正确对齐。
     """
     if arr.shape == ref_shape and src_transform == ref_transform and src_crs == ref_crs:
         return arr, False
@@ -607,8 +613,25 @@ def api_flood_inundation():
                         nodata=np.nan
                     )
 
-                    with rasterio.open(output_path, 'w', **output_profile) as dst:
-                        dst.write(inundation_result, 1)
+                    # 并发保护：用模块级锁串行化写出，且先写唯一临时文件再原子替换，
+                    # 杜绝两个并发请求抢同一批固定文件名（侧边栏/主区双入口或重复点击）
+                    # 导致的 Windows 文件锁冲突与半成品 TIFF。
+                    with FLOOD_WRITE_LOCK:
+                        fd, tmp_path = tempfile.mkstemp(
+                            prefix=output_filename + '.', suffix='.tmp',
+                            dir=flood_output_dir)
+                        os.close(fd)
+                        try:
+                            with rasterio.open(tmp_path, 'w', **output_profile) as dst:
+                                dst.write(inundation_result, 1)
+                            os.replace(tmp_path, output_path)
+                        except Exception:
+                            if os.path.exists(tmp_path):
+                                try:
+                                    os.remove(tmp_path)
+                                except OSError:
+                                    pass
+                            raise
                     current_app.logger.info(f'成功写入洪水淹没结果文件: {output_path}')
 
                     output_url = f"/backend-static/flood_inundation/{output_filename}"

@@ -115,9 +115,9 @@ const map = window.map = new ol.Map({
     baseLayers['normal']
   ],
   view: new ol.View({
-    // 青藏高原的大致中心位置（东经90度，北纬32度）
-    center: ol.proj.fromLonLat([90, 32]),
-    zoom: 8 // 增加缩放级别，让气泡更明显
+    // 默认聚焦位置（用户设定：东经94.1691度，北纬32.8524度，缩放5.5）
+    center: ol.proj.fromLonLat([94.1691, 32.8524]),
+    zoom: 5.5
   }),
   controls: []
 });

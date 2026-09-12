@@ -3028,9 +3028,20 @@ function initializeFloodSimulation() {
             });
     }
     
-    // 洪水淹没分析函数
+    // 洪水淹没分析函数（侧边栏与主区两个入口共用，需互斥，避免并发重入）
+    let floodInundationRunning = false;
     function analyzeFloodInundation(threshold, startDate, endDate, resultTable, noResultTip, analysisBtn) {
+        if (floodInundationRunning) {
+            uiMsg('洪水淹没分析正在进行中，请稍候…');
+            return;
+        }
+        floodInundationRunning = true;
+        // 两个入口按钮互斥，避免同一次操作触发两次请求抢同一批输出文件
+        const _floodBtns = [analysisBtn, startAnalysisBtn, startAnalysisBtnMain].filter(Boolean);
+        _floodBtns.forEach(b => { b.disabled = true; });
         if (!threshold || !startDate || !endDate) {
+            _floodBtns.forEach(b => { b.disabled = false; });
+            floodInundationRunning = false;
             uiMsg('请选择洪水阈值和日期范围');
             return;
         }
@@ -3039,6 +3050,8 @@ function initializeFloodSimulation() {
         const end = new Date(endDate);
         
         if (start > end) {
+            _floodBtns.forEach(b => { b.disabled = false; });
+            floodInundationRunning = false;
             uiMsg('开始日期不能晚于结束日期');
             return;
         }
@@ -3078,16 +3091,16 @@ function initializeFloodSimulation() {
             displayFloodResults(result, resultTable, noResultTip);
             
             // 恢复按钮状态
-            analysisBtn.disabled = false;
-            analysisBtn.innerHTML = '<i class="fa fa-play mr-2"></i>开始分析';
+            _floodBtns.forEach(b => { b.disabled = false; b.innerHTML = '<i class="fa fa-play mr-2"></i>开始分析'; });
+            floodInundationRunning = false;
         })
         .catch(error => {
             console.error('洪水淹没模拟失败:', error);
             uiMsg(error.message || '洪水淹没模拟失败，请检查参数或联系管理员', 'error');
             
             // 恢复按钮状态
-            analysisBtn.disabled = false;
-            analysisBtn.innerHTML = '<i class="fa fa-play mr-2"></i>开始分析';
+            _floodBtns.forEach(b => { b.disabled = false; b.innerHTML = '<i class="fa fa-play mr-2"></i>开始分析'; });
+            floodInundationRunning = false;
         });
     }
     
