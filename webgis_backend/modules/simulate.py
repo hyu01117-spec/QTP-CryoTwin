@@ -1,6 +1,7 @@
 import glob
 import datetime
 import os
+import time
 import threading
 import tempfile
 import numpy as np
@@ -40,10 +41,19 @@ GPU_CONFIG = {
 _MODEL_CACHE = {}
 _MODEL_CACHE_LOCK = threading.Lock()
 
-# 注：历史上这里曾有径流模拟互斥锁（_RUNOFF_RUN_LOCK，重复提交返回 409 /
-# 排队 / 抢占取消），2026-08-30 按需求整体移除：允许重复提交直接并发执行，
-# 后端不做任何拒绝或排队。并发写同名文件的风险由
-# runoff_engine.write_geotiff_atomic 的原子替换兜底。
+# 径流模拟互斥锁：同一时刻只允许一个模拟任务在跑。
+#
+# 背景：本接口是同步阻塞的长任务（全域单日约 18 秒，全年约 1.8 小时），
+# 且输出文件名由日期决定（{date}_runoff.tif），不含 run_id。
+# 两个并发请求会写同一批文件名 —— 2026-08-30 线上就因此挂掉：
+# rasterio 写前会先删同名旧文件，Windows 上撞 Permission denied，任务直接 500；
+# 同时两个 torch 各开 8 线程抢 8 个核，单日耗时从 18 秒劣化到 70 秒。
+#
+# 这里是进程内互斥（Flask threaded=True 的多请求场景）。
+# 跨进程的兜底由 runoff_engine.write_geotiff_atomic 的原子替换负责。
+# 2026-09-24 恢复：该锁曾于 2026-08-30 按需求移除，但其从未 commit 进 git，
+# 丢失后前端按钮双绑定的老 bug 失去兜底而暴露（详见会话记录），故恢复。
+_RUNOFF_RUN_LOCK = threading.Lock()
 
 
 def _ensure_torch_threads():
@@ -150,7 +160,9 @@ def api_runoff():
     新增参数 warmup_days：向前多读若干天驱动用于预热 LSTM 记忆（不写盘）。
     寒区融雪径流对前期积雪累积敏感，建议 ≥ 180 天；但预热会线性增加耗时，
     且受状态内存预算约束（见返回的 fallback_reason）。
+    并发：同一时刻只允许一个模拟任务，第二个直接返回 409。
     """
+    lock_acquired = False
     try:
         data = request.get_json() or {}
         model_name = data.get('model') or data.get('model_name')
@@ -238,7 +250,6 @@ def api_runoff():
 
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         n_threads = _ensure_torch_threads()
-        current_app.logger.info(f"torch 线程数: {n_threads}，设备: {device}")
         try:
             model = _load_model_cached(model_path, len(variables), device)
         except Exception as e:
@@ -262,10 +273,41 @@ def api_runoff():
         if isinstance(custom_batch_size, int) and custom_batch_size > 0:
             batch_pixels = min(int(custom_batch_size), MAX_BATCH_PIXELS)
 
+        # 抢不到锁说明已有模拟在跑，直接拒绝，不要两个长任务互相拖垮
+        if not _RUNOFF_RUN_LOCK.acquire(blocking=False):
+            current_app.logger.warning('已有径流模拟任务在运行，拒绝本次请求')
+            return jsonify({
+                'error': '已有径流模拟任务在运行，请等待其完成后再提交',
+                'code': 'simulation_busy'
+            }), 409
+        lock_acquired = True
+
+        # ---- 任务开始横幅：把全部输入参数一次性摆清楚 ----
+        current_app.logger.info('=' * 20 + ' 径流模拟任务开始 ' + '=' * 20)
+        current_app.logger.info(f'  模型       : {model_name}')
         current_app.logger.info(
-            f'开始径流模拟: {start_date}~{end_date}, warmup={warmup_days}天, '
-            f'总天数={len(all_dates)}, 输出天数={len(out_dates)}, '
-            f'流域={"有" if basin_geometry is not None else "无"}, batch={batch_pixels}')
+            f'  时间范围   : {start_date} ~ {end_date}'
+            f'（含预热共 {len(all_dates)} 天，输出 {len(out_dates)} 天，'
+            f'预热 {warmup_days} 天）')
+        current_app.logger.info(
+            f'  计算范围   : {basin_key if basin_key else "全研究区（TP_China 边界）"}')
+        current_app.logger.info(
+            f'  设备/线程  : {device}（torch 线程数 {n_threads}）')
+        current_app.logger.info(
+            f'  batch/输出 : {batch_pixels} 像元/批，输出目录 {runoff_output_dir}')
+
+        # 进度回调：每 5 天（含最后一天）打一条，带已用/预计剩余时间，
+        # 避免长任务期间十几分钟完全静默、无法判断是否卡死
+        progress_t0 = time.perf_counter()
+
+        def _report_progress(done, total, date):
+            if done % 5 != 0 and done != total:
+                return
+            used = time.perf_counter() - progress_t0
+            remain = used / done * (total - done) if done else 0.0
+            current_app.logger.info(
+                f'[径流模拟] 进度 {done}/{total} 天（{date}）'
+                f' | 已用 {used:.0f}s | 预计剩余 {remain:.0f}s')
 
         try:
             stats = simulate_runoff(
@@ -273,7 +315,8 @@ def api_runoff():
                 day_files=day_files, all_dates=all_dates, out_dates=out_dates,
                 ref_path=ref_path, output_dir=runoff_output_dir,
                 basin_geometry=basin_geometry, region_geometry=region_geometry,
-                batch_pixels=batch_pixels, logger=current_app.logger)
+                batch_pixels=batch_pixels, logger=current_app.logger,
+                progress=_report_progress)
         except ValueError as e:
             # 网格不一致、无有效像元等可预期的输入问题，按 400 返回
             current_app.logger.error(f'径流模拟参数/数据问题: {e}')
@@ -328,6 +371,10 @@ def api_runoff():
     except Exception as e:
         current_app.logger.error(f'模拟接口出错: {str(e)}', exc_info=True)
         return jsonify({'error': '服务器内部错误'}), 500
+    finally:
+        # 无论成功、参数错误还是异常，都必须放锁，否则服务会被永久卡死
+        if lock_acquired:
+            _RUNOFF_RUN_LOCK.release()
 
 
 # 新增：单独的"获取输出目录所有径流文件"接口（如果前端需要主动刷新）

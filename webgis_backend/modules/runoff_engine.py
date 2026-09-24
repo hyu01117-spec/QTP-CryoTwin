@@ -413,7 +413,6 @@ def simulate_runoff(model, device, variables, day_files, all_dates, out_dates,
     # 打开 gdalinfo / 在 GIS 软件里查看仍然看到全高原边界。
     local_transform = rasterio.windows.transform(win, grid['transform'])
     # 压缩格式必须限制在前端 webgis_frontend/js/geotiff.js 支持的范围内：
-    # 压缩格式必须限制在前端 webgis_frontend/js/geotiff.js 支持的范围内：
     #   1 无压缩 / 5 LZW / 8 Deflate / 32773 PackBits / 34887 LERC / 50001 ZSTD(带预测器)
     # GDAL 的 zstd 一律写 tag 50000，该库不认，故禁用。
     profile = grid['profile'].copy()
@@ -486,6 +485,7 @@ def simulate_runoff(model, device, variables, day_files, all_dates, out_dates,
                 progress(di + 1, len(all_dates), date)
 
     elapsed = time.perf_counter() - t_start
+
     stats = {
         'files': written,
         'n_pixels': P,
@@ -500,6 +500,28 @@ def simulate_runoff(model, device, variables, day_files, all_dates, out_dates,
         'nodata_values_filled': n_nodata_filled,
         'elapsed_seconds': round(elapsed, 2),
     }
-    _log(logger, f'径流模拟完成：{len(written)} 天，{P:,} 像元，'
-                 f'耗时 {elapsed:.1f}s，填充缺失值 {n_nodata_filled:,} 个')
+
+    # ---- 收尾汇总：多行日志块，长任务结束后一眼看清全部关键结果 ----
+    per_day = elapsed / max(len(all_dates), 1)
+    if written:
+        d0 = os.path.basename(written[0])[:10]
+        d1 = os.path.basename(written[-1])[:10]
+        out_desc = f'{len(written)} 天（{d0} ~ {d1}）'
+    else:
+        out_desc = '0 天（未产出任何文件）'
+    if use_state:
+        mem_desc = f'开（LSTM 状态 {state_bytes/1024**3:.2f} GB）'
+    elif fallback_reason:
+        mem_desc = f'关 —— {fallback_reason}'
+    else:
+        mem_desc = '关（单日任务无需跨日状态）'
+
+    _log(logger, '=' * 20 + ' 径流模拟完成 ' + '=' * 20)
+    _log(logger, f'  输出结果    : {out_desc}')
+    _log(logger, f'  有效像元    : {P:,}')
+    _log(logger, f'  跨日记忆    : {mem_desc}')
+    _log(logger, f'  耗时        : {elapsed:.1f}s（平均 {per_day:.1f}s/天，'
+                 f'batch {batch_pixels} 像元）')
+    _log(logger, f'  缺失值填充  : {n_nodata_filled:,} 个像元值')
+    _log(logger, f'  输出目录    : {output_dir}')
     return stats

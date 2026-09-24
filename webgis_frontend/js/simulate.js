@@ -300,7 +300,13 @@ document.addEventListener('DOMContentLoaded', () => {
     let chartData = []; // 折线图数据
     let loopControlBtn = null;
     let loopStatusDisplay = null;
-    
+    // 径流模拟接口全局占用标记：径流模拟与洪水灾害过程-径流模拟两个入口共用同一后端接口，
+    // 避免一个在跑时另一个入口重复提交（后端会返回 409）。
+    // 两个入口在不同作用域，必须挂到 window 上共享。
+    // 2026-09-24 恢复：此前版本的该标记从未 commit、随未提交改动丢失，
+    // 与后端 _RUNOFF_RUN_LOCK 一并补回。
+    window.runoffApiBusy = false;
+
     // 使用 main.js 中已定义的全局变量
     // - baseLayers: 底图配置
     // - basinLayer, riverLayer, cmaLayer: 专题图层引用
@@ -1294,6 +1300,13 @@ window.loadGeoTiffLayer = async function(filePath, variable, date) {
             return;
         }
 
+        // 与洪水灾害过程-径流模拟入口共用同一接口，运行中禁止重复提交
+        if (window.runoffApiBusy) {
+            uiMsg('已有径流模拟任务在运行，请等待其完成后再提交', 'error');
+            return;
+        }
+        window.runoffApiBusy = true;
+
         // 设置按钮为模拟中状态
         const originalText = simulateBtn.innerHTML;
         simulateBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> 模拟中...';
@@ -1402,6 +1415,7 @@ window.loadGeoTiffLayer = async function(filePath, variable, date) {
             simulateBtn.disabled = false;
             simulateBtn.style.opacity = '1';
             simulateBtn.style.cursor = 'pointer';
+            window.runoffApiBusy = false;
 
             loadingOverlay.style.display = 'none';
         }
@@ -2313,6 +2327,12 @@ function initializeFloodSubmoduleTabs() {
 
 // 洪水灾害过程模拟功能
 function initializeFloodSimulationModule() {
+    // 幂等保护：该函数会被 DOMContentLoaded 直接调用一次，
+    // 又会被 initializeFloodSubmoduleTabs() 再调用一次；
+    // 若不防重入，start-flood-runoff-simulate 按钮的 click 监听会绑定两次，
+    // 用户点一次按钮就会并发发出两个相同的 POST /api/simulate/runoff。
+    if (window.__floodSimModuleInited) return;
+    window.__floodSimModuleInited = true;
     // 洪水径流模拟子模块
     const floodRunoffModelSelect = document.getElementById('flood-runoff-model-select');
     const floodRunoffStartDate = document.getElementById('flood-runoff-start-date');
@@ -2445,6 +2465,13 @@ function initializeFloodSimulationModule() {
             return;
         }
 
+        // 与径流模拟入口共用同一接口，运行中禁止重复提交
+        if (window.runoffApiBusy) {
+            uiMsg('已有径流模拟任务在运行，请等待其完成后再提交', 'error');
+            return;
+        }
+        window.runoffApiBusy = true;
+
         // 显示加载状态
         startFloodRunoffSimulateBtn.disabled = true;
         startFloodRunoffSimulateBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> 模拟中...';
@@ -2534,6 +2561,7 @@ function initializeFloodSimulationModule() {
             // 恢复按钮状态
             startFloodRunoffSimulateBtn.innerHTML = '<i class="fa fa-play mr-2"></i>开始径流模拟';
             startFloodRunoffSimulateBtn.disabled = false;
+            window.runoffApiBusy = false;
         }
     });
 
