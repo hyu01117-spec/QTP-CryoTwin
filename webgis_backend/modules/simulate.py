@@ -62,9 +62,12 @@ def _ensure_torch_threads():
 
     本机环境为 torch 2.8.0+cpu（无 CUDA），GPU 分支全部是死代码，
     实际走 CPU 路径。这一步是纯收益，不改变计算结果。
+    封顶 64：在 128 逻辑线程的机器上，hidden=100 的小 LSTM 用满 128
+    线程属于过度订阅，且每线程工作区会推高内存压力
+    （2026-09-25 63GB 服务器 OOM 事故）。封顶值是保守推算，待基准微调。
     """
     try:
-        n = os.cpu_count() or 4
+        n = min(os.cpu_count() or 4, 64)
         if torch.get_num_threads() != n:
             torch.set_num_threads(n)
         return n

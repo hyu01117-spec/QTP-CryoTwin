@@ -53,8 +53,11 @@ DEFAULT_STATE_BUDGET_BYTES = 2 * 1024 ** 3
 def detect_memory_bytes():
     """探测（总内存, 可用内存）字节数；失败返回 (None, None)。
 
-    Windows 走 GlobalMemoryStatusEx（GetPhysicallyInstalledSystemMemory
-    在部分机器上返回 0，不可靠）；非 Windows 退回 os.sysconf。
+    Windows 走 GlobalMemoryStatusEx。注意必须取物理可用与**可提交额度**
+    （ullAvailPageFile，物理+页面文件减去已提交）的较小值：
+    2026-09-25 教训——63GB 内存的服务器"物理可用 40GB"，但页面文件很小、
+    提交额度见底，连 47.7MB 都申请不到，导致连串 OOM。
+    非 Windows 退回 os.sysconf。
     """
     try:
         if os.name == 'nt':
@@ -77,7 +80,10 @@ def detect_memory_bytes():
             st = _MemStatus()
             st.dwLength = ctypes.sizeof(_MemStatus)
             if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(st)):
-                return int(st.ullTotalPhys), int(st.ullAvailPhys)
+                # 物理可用 与 可提交额度 取小者，避免"有物理内存却申请不到"
+                avail = min(int(st.ullAvailPhys), int(st.ullAvailPageFile))
+                total = int(st.ullTotalPhys)
+                return total, avail
             return None, None
         page = os.sysconf('SC_PAGE_SIZE')
         total = page * os.sysconf('SC_PHYS_PAGES')
@@ -107,15 +113,18 @@ def auto_state_budget_bytes(logger=None):
 
 
 def auto_batch_pixels(cpu_threads=None):
-    """batch 像元数自适应：CPU 线程数 × 4096，夹在 [16K, 128K]。
+    """batch 像元数自适应：CPU 线程数 × 4096，夹在 [16K, 64K]。
 
     8 线程 → 32768。batch 越大，Python 层的分批循环越少、每次 torch
     调度喂进去的数据越足；单批额外内存只有批 × 变量数 × 4 字节
     （32768 × 4 × 4B ≈ 0.5 MB 量级），放大是安全的。
+    上限 65536：2026-09-25 实测 131072 在 128 线程/63GB 服务器上，
+    LSTM 单次前向要一次性分配 ~2.1GB 连续内存而 OOM（可提交内存见底），
+    故把上限砍半；再不够还有 simulate_runoff 里的 OOM 降档重试兜底。
     前端显式传 batch_size 的调用不受影响（仍尊重用户值）。
     """
     n = cpu_threads or os.cpu_count() or 4
-    return int(min(max(n * 4096, DEFAULT_BATCH_PIXELS), 131072))
+    return int(min(max(n * 4096, DEFAULT_BATCH_PIXELS), 65536))
 
 
 class RunoffLSTM(nn.Module):
@@ -414,6 +423,17 @@ def write_geotiff_atomic(out_path, array, profile, retries=5, logger=None):
         raise
 
 
+def _is_oom_error(e):
+    """判断异常是否为内存不足类（torch CPU allocator / numpy 分配失败）。"""
+    msg = str(e).lower()
+    return ('not enough memory' in msg
+            or 'out of memory' in msg
+            or 'cannot allocate memory' in msg
+            or 'unable to allocate' in msg
+            or 'alloc_cpu' in msg
+            or 'defaultcpuallocator' in msg)
+
+
 def simulate_runoff(model, device, variables, day_files, all_dates, out_dates,
                     ref_path, output_dir, basin_geometry=None,
                     region_geometry=None,
@@ -494,67 +514,105 @@ def simulate_runoff(model, device, variables, day_files, all_dates, out_dates,
 
     os.makedirs(output_dir, exist_ok=True)
 
-    state_h = state_c = None
-    last_good = None
-    out_buffer = np.full((win_h, win_w), np.nan, dtype=np.float32)
-    written = []
-    n_nodata_filled = 0
+    def _run_days(batch_cur, state_cur):
+        """跑完整日循环。OOM 时由外层降档重试，这里不做任何兜底。
+        返回 (written, n_nodata_filled, state_used)。"""
+        state_h = state_c = None
+        last_good = None
+        out_buffer = np.full((win_h, win_w), np.nan, dtype=np.float32)
+        written = []
+        n_nodata_filled = 0
 
-    with torch.no_grad():
-        for di, date in enumerate(all_dates):
-            X, bad = _read_day_vars(day_files, date, variables, win, rl, cl,
-                                    (height, width), logger)
-            n_bad = int(bad.sum())
+        with torch.no_grad():
+            for di, date in enumerate(all_dates):
+                X, bad = _read_day_vars(day_files, date, variables, win, rl, cl,
+                                        (height, width), logger)
+                n_bad = int(bad.sum())
 
-            # 缺失值前向填充：保持序列连续，否则 LSTM 会读到 NaN 并污染整条序列
-            if last_good is None:
-                for vi in range(len(variables)):
-                    b = bad[vi]
-                    if not b.any():
-                        continue
-                    good = X[vi][~b]
-                    X[vi][b] = np.float32(np.median(good)) if good.size else np.float32(0.0)
-            else:
-                X = np.where(bad, last_good, X)
-            last_good = X.copy()
-            if n_bad:
-                n_nodata_filled += n_bad
-
-            # (V, P) -> (P, 1, V)：像元是 batch，时间是长度 1 的序列
-            Xt = np.ascontiguousarray(X.T)[:, None, :]
-
-            if use_state and state_h is None:
-                # 维度取自模型而非硬编码，换 hidden_size / 层数时不用改这里
-                n_layers = model.lstm.num_layers
-                hidden = model.lstm.hidden_size
-                state_h = torch.zeros(n_layers, P, hidden, dtype=torch.float32)
-                state_c = torch.zeros(n_layers, P, hidden, dtype=torch.float32)
-
-            y_all = np.empty(P, dtype=np.float32)
-            for s in range(0, P, batch_pixels):
-                e = min(s + batch_pixels, P)
-                xb = torch.from_numpy(Xt[s:e]).to(device)
-                if use_state:
-                    st = (state_h[:, s:e], state_c[:, s:e])
-                    y, (h, c) = model(xb, st)
-                    state_h[:, s:e] = h
-                    state_c[:, s:e] = c
+                # 缺失值前向填充：保持序列连续，否则 LSTM 会读到 NaN 并污染整条序列
+                if last_good is None:
+                    for vi in range(len(variables)):
+                        b = bad[vi]
+                        if not b.any():
+                            continue
+                        good = X[vi][~b]
+                        X[vi][b] = np.float32(np.median(good)) if good.size else np.float32(0.0)
                 else:
-                    y, _ = model(xb, None)
-                y_all[s:e] = y[:, -1].cpu().numpy()
+                    X = np.where(bad, last_good, X)
+                last_good = X.copy()
+                if n_bad:
+                    n_nodata_filled += n_bad
 
-            if date in out_dates:
-                # out_buffer 形状就是窗口（win_h, win_w），
-                # idx 是窗口内的有效像元扁平索引，直接写即可。
-                out_buffer[:] = np.nan
-                out_buffer.ravel()[idx] = y_all
-                out_path = os.path.join(output_dir, f'{date}_runoff.tif')
-                write_geotiff_atomic(out_path, out_buffer, profile,
-                                     logger=logger)
-                written.append(out_path)
+                # (V, P) -> (P, 1, V)：像元是 batch，时间是长度 1 的序列
+                Xt = np.ascontiguousarray(X.T)[:, None, :]
 
-            if progress:
-                progress(di + 1, len(all_dates), date)
+                if state_cur and state_h is None:
+                    # 维度取自模型而非硬编码，换 hidden_size / 层数时不用改这里
+                    n_layers = model.lstm.num_layers
+                    hidden = model.lstm.hidden_size
+                    state_h = torch.zeros(n_layers, P, hidden, dtype=torch.float32)
+                    state_c = torch.zeros(n_layers, P, hidden, dtype=torch.float32)
+
+                y_all = np.empty(P, dtype=np.float32)
+                for s in range(0, P, batch_cur):
+                    e = min(s + batch_cur, P)
+                    xb = torch.from_numpy(Xt[s:e]).to(device)
+                    if state_cur:
+                        st = (state_h[:, s:e], state_c[:, s:e])
+                        y, (h, c) = model(xb, st)
+                        state_h[:, s:e] = h
+                        state_c[:, s:e] = c
+                    else:
+                        y, _ = model(xb, None)
+                    y_all[s:e] = y[:, -1].cpu().numpy()
+
+                if date in out_dates:
+                    # out_buffer 形状就是窗口（win_h, win_w），
+                    # idx 是窗口内的有效像元扁平索引，直接写即可。
+                    out_buffer[:] = np.nan
+                    out_buffer.ravel()[idx] = y_all
+                    out_path = os.path.join(output_dir, f'{date}_runoff.tif')
+                    write_geotiff_atomic(out_path, out_buffer, profile,
+                                         logger=logger)
+                    written.append(out_path)
+
+                if progress:
+                    progress(di + 1, len(all_dates), date)
+
+        return written, n_nodata_filled, state_h is not None
+
+    # ---- OOM 自适应降档重试：batch 减半 → 关跨日记忆 → 明确报错 ----
+    # 2026-09-25 实测：128 线程/63GB 服务器上 batch 131072 的 LSTM 单次前向
+    # 要一次性分配 ~2.1GB 连续内存而 OOM。失败一般发生在开跑初期，重试成本低。
+    attempt_batch, attempt_state = batch_pixels, use_state
+    retry_note = None
+    while True:
+        try:
+            written, n_nodata_filled, state_used = _run_days(
+                attempt_batch, attempt_state)
+            break
+        except (RuntimeError, MemoryError) as e:
+            if not _is_oom_error(e):
+                raise
+            # 强制回收上一轮尝试残留的引用（异常 traceback 会握住帧），
+            # 提交额度紧张时不回收会让下一轮连 47MB 都申请不到
+            import gc
+            gc.collect()
+            if attempt_batch > 4096:
+                attempt_batch = max(attempt_batch // 2, 4096)
+                retry_note = (f'推理中内存不足（{e}），batch 自动降为 '
+                              f'{attempt_batch:,} 后重试')
+                _log(logger, retry_note, 'warning')
+                continue
+            if attempt_state:
+                attempt_state = False
+                retry_note = ('推理中内存不足，已自动关闭跨日记忆'
+                              '（逐日独立推理）并降小 batch 后重试')
+                _log(logger, retry_note, 'warning')
+                continue
+            raise ValueError(
+                '本机内存不足以完成该模拟：请缩小时间范围 / 只选单个流域，'
+                '或显式传更小的 batch_size') from e
 
     elapsed = time.perf_counter() - t_start
 
@@ -565,10 +623,10 @@ def simulate_runoff(model, device, variables, day_files, all_dates, out_dates,
         'n_days_output': len(written),
         'scope': grid['scope'],
         'window': [int(win.row_off), int(win.col_off), win_h, win_w],
-        'cross_day_memory': bool(use_state),
-        'fallback_reason': fallback_reason,
-        'state_bytes': int(state_bytes) if use_state else 0,
-        'batch_pixels': int(batch_pixels),
+        'cross_day_memory': bool(state_used),
+        'fallback_reason': None if state_used else (fallback_reason or retry_note),
+        'state_bytes': int(state_bytes) if state_used else 0,
+        'batch_pixels': int(attempt_batch),
         'nodata_values_filled': n_nodata_filled,
         'elapsed_seconds': round(elapsed, 2),
     }
@@ -581,19 +639,18 @@ def simulate_runoff(model, device, variables, day_files, all_dates, out_dates,
         out_desc = f'{len(written)} 天（{d0} ~ {d1}）'
     else:
         out_desc = '0 天（未产出任何文件）'
-    if use_state:
+    if state_used:
         mem_desc = f'开（LSTM 状态 {state_bytes/1024**3:.2f} GB）'
-    elif fallback_reason:
-        mem_desc = f'关 —— {fallback_reason}'
     else:
-        mem_desc = '关（单日任务无需跨日状态）'
+        reason = retry_note or fallback_reason or '单日任务无需跨日状态'
+        mem_desc = f'关 —— {reason}'
 
     _log(logger, '=' * 20 + ' 径流模拟完成 ' + '=' * 20)
     _log(logger, f'  输出结果    : {out_desc}')
     _log(logger, f'  有效像元    : {P:,}')
     _log(logger, f'  跨日记忆    : {mem_desc}')
     _log(logger, f'  耗时        : {elapsed:.1f}s（平均 {per_day:.1f}s/天，'
-                 f'batch {batch_pixels} 像元）')
+                 f'batch {attempt_batch:,} 像元）')
     _log(logger, f'  缺失值填充  : {n_nodata_filled:,} 个像元值')
     _log(logger, f'  输出目录    : {output_dir}')
     return stats
