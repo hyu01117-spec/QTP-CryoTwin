@@ -17,7 +17,8 @@ from flask import Blueprint, request, jsonify, current_app
 from modules.utils import get_project_root, load_json_cached, resolve_index_path
 from modules.runoff_engine import (
     RunoffLSTM, simulate_runoff, load_region_geometry,
-    DEFAULT_BATCH_PIXELS, MAX_BATCH_PIXELS)
+    DEFAULT_BATCH_PIXELS, MAX_BATCH_PIXELS,
+    auto_batch_pixels, auto_state_budget_bytes, detect_memory_bytes)
 
 simulate_bp = Blueprint('simulate', __name__, url_prefix='/api/simulate')
 
@@ -269,9 +270,16 @@ def api_runoff():
                 current_app.logger.warning(
                     f'未找到流域几何，按研究区边界计算: {basin_key}')
 
-        batch_pixels = DEFAULT_BATCH_PIXELS
+        # batch 像元数自适应：前端未显式指定时按 CPU 线程数推导
+        # （8 线程 → 32768）；显式传值仍优先。
         if isinstance(custom_batch_size, int) and custom_batch_size > 0:
             batch_pixels = min(int(custom_batch_size), MAX_BATCH_PIXELS)
+        else:
+            batch_pixels = auto_batch_pixels(n_threads)
+
+        # LSTM 状态内存预算自适应：按本机总/可用内存推导，
+        # 内存充裕时全域模拟的跨日记忆（~4.65 GB）就能开启
+        state_budget = auto_state_budget_bytes(current_app.logger)
 
         # 抢不到锁说明已有模拟在跑，直接拒绝，不要两个长任务互相拖垮
         if not _RUNOFF_RUN_LOCK.acquire(blocking=False):
@@ -283,6 +291,9 @@ def api_runoff():
         lock_acquired = True
 
         # ---- 任务开始横幅：把全部输入参数一次性摆清楚 ----
+        total_b, avail_b = detect_memory_bytes()
+        mem_desc = (f'总内存 {total_b/1024**3:.1f} GB / 可用 '
+                    f'{avail_b/1024**3:.1f} GB') if total_b else '内存探测失败'
         current_app.logger.info('=' * 20 + ' 径流模拟任务开始 ' + '=' * 20)
         current_app.logger.info(f'  模型       : {model_name}')
         current_app.logger.info(
@@ -292,9 +303,13 @@ def api_runoff():
         current_app.logger.info(
             f'  计算范围   : {basin_key if basin_key else "全研究区（TP_China 边界）"}')
         current_app.logger.info(
-            f'  设备/线程  : {device}（torch 线程数 {n_threads}）')
+            f'  设备/线程  : {device}（torch 线程数 {n_threads}，{mem_desc}）')
         current_app.logger.info(
-            f'  batch/输出 : {batch_pixels} 像元/批，输出目录 {runoff_output_dir}')
+            f'  自适应参数 : batch {batch_pixels} 像元/批，'
+            f'LSTM 状态预算 {state_budget/1024**3:.1f} GB'
+            f'（按本机性能自动推导，前端传参可覆盖）')
+        current_app.logger.info(
+            f'  输出目录   : {runoff_output_dir}')
 
         # 进度回调：每 5 天（含最后一天）打一条，带已用/预计剩余时间，
         # 避免长任务期间十几分钟完全静默、无法判断是否卡死
@@ -315,7 +330,9 @@ def api_runoff():
                 day_files=day_files, all_dates=all_dates, out_dates=out_dates,
                 ref_path=ref_path, output_dir=runoff_output_dir,
                 basin_geometry=basin_geometry, region_geometry=region_geometry,
-                batch_pixels=batch_pixels, logger=current_app.logger,
+                batch_pixels=batch_pixels,
+                state_budget_bytes=state_budget,
+                logger=current_app.logger,
                 progress=_report_progress)
         except ValueError as e:
             # 网格不一致、无有效像元等可预期的输入问题，按 400 返回

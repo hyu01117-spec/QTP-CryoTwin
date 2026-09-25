@@ -23,6 +23,7 @@
 （放弃跨日记忆），并在返回的 stats 里说明原因，避免在线服务被大请求打爆。
 """
 import os
+import sys
 import time
 import tempfile
 
@@ -43,7 +44,78 @@ MAX_BATCH_PIXELS = 262144
 # 默认状态内存预算 2 GB。
 # 实际占用 = P × (h+c) × 层数 × hidden_size × 4 字节，运行时按模型推算；
 # 当前模型（2 层 × hidden 100）为 P × 1600 字节，故 2 GB 约对应 134 万像元。
+# 2026-09-24 起在线服务不再直接用这个常量，而是 auto_state_budget_bytes()
+# 按本机内存自适应推导（16GB/9GB 可用的机器可推出 ~5.4GB，全域模拟的
+# 4.65GB 跨日状态就能放得下），该常量仅作探测失败时的兜底。
 DEFAULT_STATE_BUDGET_BYTES = 2 * 1024 ** 3
+
+
+def detect_memory_bytes():
+    """探测（总内存, 可用内存）字节数；失败返回 (None, None)。
+
+    Windows 走 GlobalMemoryStatusEx（GetPhysicallyInstalledSystemMemory
+    在部分机器上返回 0，不可靠）；非 Windows 退回 os.sysconf。
+    """
+    try:
+        if os.name == 'nt':
+            import ctypes
+            import ctypes.wintypes as wintypes
+
+            class _MemStatus(ctypes.Structure):
+                _fields_ = [
+                    ('dwLength', wintypes.DWORD),
+                    ('dwMemoryLoad', wintypes.DWORD),
+                    ('ullTotalPhys', ctypes.c_ulonglong),
+                    ('ullAvailPhys', ctypes.c_ulonglong),
+                    ('ullTotalPageFile', ctypes.c_ulonglong),
+                    ('ullAvailPageFile', ctypes.c_ulonglong),
+                    ('ullTotalVirtual', ctypes.c_ulonglong),
+                    ('ullAvailVirtual', ctypes.c_ulonglong),
+                    ('ullAvailExtendedVirtual', ctypes.c_ulonglong),
+                ]
+
+            st = _MemStatus()
+            st.dwLength = ctypes.sizeof(_MemStatus)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(st)):
+                return int(st.ullTotalPhys), int(st.ullAvailPhys)
+            return None, None
+        page = os.sysconf('SC_PAGE_SIZE')
+        total = page * os.sysconf('SC_PHYS_PAGES')
+        avail = page * os.sysconf('SC_AVPHYS_PAGES')
+        return total, avail
+    except Exception:
+        return None, None
+
+
+def auto_state_budget_bytes(logger=None):
+    """LSTM 状态内存预算自适应。
+
+    规则：min(总内存 × 40%, 可用内存 × 60%, 8 GB)，下限 2 GB。
+    - 总内存 40%：给系统和其他进程留大头，避免状态张量把机器顶爆；
+    - 可用内存 60%：预算随提交时刻的空闲度浮动，机器上刚开过大程序
+      就自动收紧，宁降级不 OOM；
+    - 8 GB 上限：再空也不至于把交换区卷进来拖垮速度。
+    探测失败时退回固定 2 GB（DEFAULT_STATE_BUDGET_BYTES，原行为）。
+    """
+    total_b, avail_b = detect_memory_bytes()
+    if not total_b or not avail_b:
+        _log(logger, '内存探测失败，state 预算退回固定 2 GB', 'warning')
+        return DEFAULT_STATE_BUDGET_BYTES
+    budget = min(int(total_b * 0.4), int(avail_b * 0.6), 8 * 1024 ** 3)
+    budget = max(budget, DEFAULT_STATE_BUDGET_BYTES)
+    return budget
+
+
+def auto_batch_pixels(cpu_threads=None):
+    """batch 像元数自适应：CPU 线程数 × 4096，夹在 [16K, 128K]。
+
+    8 线程 → 32768。batch 越大，Python 层的分批循环越少、每次 torch
+    调度喂进去的数据越足；单批额外内存只有批 × 变量数 × 4 字节
+    （32768 × 4 × 4B ≈ 0.5 MB 量级），放大是安全的。
+    前端显式传 batch_size 的调用不受影响（仍尊重用户值）。
+    """
+    n = cpu_threads or os.cpu_count() or 4
+    return int(min(max(n * 4096, DEFAULT_BATCH_PIXELS), 131072))
 
 
 class RunoffLSTM(nn.Module):
