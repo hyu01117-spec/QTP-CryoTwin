@@ -7,9 +7,9 @@ from tqdm import tqdm
 # 配置参数
 # --------------------------
 # 输入文件夹路径
-input_folder_path = r"E:\YHH\total_precipitation_sum_monthly"
+input_folder_path = r"F:\TibetanPlateau\total_precipitation_sum_monthly"
 # 输出文件夹路径
-output_folder_path = r"E:\YHH\Cryo-floods\data\raw\TibetanPlateau\total_precipitation_sum"
+output_folder_path = r"F:\TibetanPlateau\total_precipitation_sum"
 # 文件名前缀变量（可自定义，如"temp_2m_"）
 file_prefix = "total_precipitation_sum_"  # 这里是要添加的变量名/前缀
 

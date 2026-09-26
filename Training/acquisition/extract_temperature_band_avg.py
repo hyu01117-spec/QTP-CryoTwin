@@ -5,9 +5,9 @@ import rasterio
 # 配置参数
 # --------------------------
 # 输入文件夹路径
-input_folder_path = r"E:\YHH\下载\temperature_2m_monthly"
+input_folder_path = r"F:\TibetanPlateau\temperature_2m_monthly"
 # 输出文件夹路径
-output_folder_path = r"E:\YHH\Cryo-floods\data\raw\TibetanPlateau\temperature_2m"
+output_folder_path = r"F:\TibetanPlateau\temperature_2m"
 # 文件名前缀变量（可自定义，如"temp_2m_"）
 file_prefix = "temperature_2m_"  # 这里是要添加的变量名/前缀
 
